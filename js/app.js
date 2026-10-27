@@ -28,6 +28,31 @@ function veilig(naam, fn) {
 
 const F = FUNCTIONEREN;
 const alleIndicatoren = () => F.themas.flatMap((t) => t.indicatoren);
+const themaVan = (ind) => F.themas.find((t) => t.indicatoren.includes(ind));
+
+const STATUS = {
+  ja: "Beantwoord in de datalade",
+  deels: "Deels in de datalade",
+  nee: "Niet in de datalade",
+};
+
+// Waar de datalade het antwoord al heeft, vervangt het echte cijfer het fictieve. Ontbreekt
+// data/datalade.js, dan blijft de mock-up staan.
+const UIT_DATALADE = {
+  "ov-frequentie": (code) => {
+    const f = DATALADE.ov.perGebied[code].frequentie;
+    return { v: Math.round((100 * f.voldoen) / f.haltes), toel: `${f.voldoen} van ${f.haltes} haltes` };
+  },
+  "ov-haltedekking": (code) => {
+    const d = DATALADE.ov.perGebied[code].dekking;
+    return { v: d.aandeel, toel: "over het looproutenetwerk" };
+  },
+};
+function waarde(ind, code) {
+  const echt = typeof DATALADE !== "undefined" && UIT_DATALADE[ind.sleutel];
+  if (echt) return { ...echt(code), echt: true };
+  return ind.waarden[code] || { v: null };
+}
 const normVan = (ind) => (ind.norm ? F.normen[ind.norm] : null);
 const fmt = (v, d = 0) =>
   v.toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -48,13 +73,14 @@ function chip(st) {
 }
 
 function cel(ind, code) {
-  const w = ind.waarden[code] || { v: null };
+  const w = waarde(ind, code);
   const st = oordeel(w.v, normVan(ind));
   const getal = w.v == null ? "–" : fmt(w.v, ind.decimalen || 0);
   const toonChip = S.normen || st === "leeg";
   return `<td class="getal">
     <div class="w">${getal}${w.v == null || !ind.eenheid ? "" : ` <span class="e">${ind.eenheid}</span>`}</div>
     ${w.toel ? `<div class="toel">${w.toel}</div>` : ""}
+    ${w.echt ? `<div class="bron-echt">datalade</div>` : ""}
     ${toonChip ? `<div>${chip(st)}</div>` : ""}</td>`;
 }
 
@@ -71,7 +97,9 @@ function indicatorkaart(ind) {
   return `<dl class="ikaart">
     <div><dt>Wat meet het</dt><dd>${ind.definitie}</dd></div>
     <div><dt>Niveau en bron</dt><dd>${ind.niveau} · ${ind.bron}</dd></div>
-    <div><dt>Data</dt><dd>${ind.data}</dd></div>
+    <div><dt>Beschikbaar volgens themateam</dt><dd>${ind.data}</dd></div>
+    <div><dt>In de datalade</dt><dd><span class="oordeel o-${ind.datalade.status}">${STATUS[ind.datalade.status]}</span>
+      <br><a href="${themaVan(ind).pagina}#i-${ind.sleutel}">Bekijk in de ${themaVan(ind).naam}-viewer</a></dd></div>
     <div><dt>Norm</dt><dd>${normTekst}</dd></div>
     <div class="filter${ind.actie ? "" : " leeg"}"><dt>Wat doen we als het rood staat</dt>
       <dd>${ind.actie || "Nog geen handelingsperspectief afgesproken."}</dd></div>
@@ -96,12 +124,12 @@ function tabel(thema) {
     <colgroup><col style="width:26%">${G.map(() => `<col style="width:17%">`).join("")}<col style="width:23%"></colgroup>
     <thead><tr><th>Indicator</th>${G.map((g) => `<th class="getal">${g.naam}</th>`).join("")}<th>Norm</th></tr></thead>
     <tbody>${rijen}</tbody></table></div>
-    <div class="foot">Waarden fictief. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.</div></div>`;
+    <div class="foot">Waarden fictief, behalve waar ‘datalade’ staat. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.</div></div>`;
 }
 
 function kerncijfers() {
   const alle = alleIndicatoren();
-  const cellen = alle.flatMap((ind) => F.gebieden.map((g) => oordeel((ind.waarden[g.code] || {}).v, normVan(ind))));
+  const cellen = alle.flatMap((ind) => F.gebieden.map((g) => oordeel(waarde(ind, g.code).v, normVan(ind))));
   const metNorm = alle.filter((i) => i.norm).length;
   const beleid = alle.filter((i) => normVan(i)?.soort === "beleid").length;
   const rood = cellen.filter((s) => s === "rood").length;
@@ -114,7 +142,7 @@ function kerncijfers() {
     [leeg, "gebiedscijfers die ontbreken"],
   ];
   document.getElementById("kerncijfers").innerHTML = blokken
-    .map(([n, l, r]) => `<div class="cell${r && S.normen ? " rood" : ""}"><div class="num">${n}</div><div class="lbl">${l}</div><div class="src">fictief</div></div>`)
+    .map(([n, l, r]) => `<div class="cell${r && S.normen ? " rood" : ""}"><div class="num">${n}</div><div class="lbl">${l}</div><div class="src">mock-up</div></div>`)
     .join("");
 
   const ovZonderNorm = F.themas.find((t) => t.sleutel === "ov").indicatoren.every((i) => !i.norm);

@@ -10,10 +10,30 @@ Openen: dubbelklik `index.html`. Geen buildstap, werkt onder `file://`.
 
 | Bestand | Wat |
 |---|---|
-| `index.html` | opmaak en vaste tekst; kleurtokens gelijk aan `rayonplannen` |
-| `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen en indicatoren met waarden per gebied |
-| `js/app.js` | oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
+| `index.html` | overzicht: alle indicatoren met normenlaag (mock-up, deels echte cijfers) |
+| `parkeren.html`, `ov.html` | themaviewers: per indicator wat de datalade al kan beantwoorden en wat er nodig is |
+| `css/basis.css` | gedeelde opmaak; kleurtokens gelijk aan `rayonplannen` |
+| `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen, indicatoren en per indicator de datalade-status (handgeschreven) |
+| `data/datalade.js` | `const DATALADE`: echte cijfers, gegenereerd door `scripts/bouw_datalade.py` |
+| `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
+| `js/thema.js` | themaviewers: kaart, tabellen en uurprofiel uit `DATALADE` |
 | `js/review.js` | reviewmodus, alleen geladen met `?review=1` |
+
+## Echte cijfers bijwerken
+
+`data/datalade.js` komt uit twee vastgepinde, openbare checkouts. De commit van elke bron staat
+in de uitvoer en onderaan elke themaviewer.
+
+```bash
+git clone --depth 1 https://github.com/WKSu/prototype-overschie ../wksu/prototype-overschie
+git clone --depth 1 https://github.com/WKSu/loopbaarheid-ov ../wksu/loopbaarheid-ov
+uv run scripts/bouw_datalade.py --datalade ../wksu/prototype-overschie \
+    --loopbaarheid ../wksu/loopbaarheid-ov/index.html
+```
+
+Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
+Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
+Daarna: `uvx ruff format scripts/ && uvx ruff check scripts/`.
 
 ## Reviewmodus
 
@@ -30,9 +50,9 @@ export onder "Onderwerp bestaat niet meer".
 
 ## Lagen
 
-1. **Nu:** rayon Noord buiten de Ring, Parkeren en OV, met **fictieve waarden**.
-2. `data/indicatoren.js` genereren uit een vastgepinde snapshot van `rayonplannen`
-   (`ov.js`, `intern.js`), met bron en peildatum per cijfer.
+1. Rayon Noord buiten de Ring, Parkeren en OV, met fictieve waarden.
+2. **Nu:** echte cijfers waar de datalade ze heeft (`data/datalade.js`), en een themaviewer
+   per thema met wat er nog ontbreekt.
 3. Deeplinks terug naar `rayonplannen` op gebiedscode.
 4. Opgaven als registry: alleen bij een norm met een aanwijsbaar document.
 

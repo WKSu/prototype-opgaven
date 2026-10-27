@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parkeren · Noord buiten de Ring</title>
+<link rel="stylesheet" href="css/basis.css">
+</head>
+<body data-thema="parkeren" data-pagina="parkeren" data-review-hint="Reageer onder elk blok.">
+
+<div class="prototype" role="note"><p><strong>Onderzoek</strong>Echte cijfers uit de gepubliceerde datalade, zonder normen of oordeel. Opmerkingen? <a href="?review=1">Zet de reviewmodus aan</a>.</p></div>
+
+<header>
+  <div class="hrow">
+    <h3>Parkeren · Noord buiten de Ring</h3>
+    <nav aria-label="Pagina's">
+      <a href="index.html">← Overzicht</a><a href="parkeren.html" aria-current="page">Parkeren</a><a href="ov.html">OV</a><a href="#nodig">Wat er nodig is</a>
+    </nav>
+  </div>
+</header>
+
+<div class="spine" aria-hidden="true"></div>
+
+<main id="inhoud"></main>
+
+<script src="data/indicatoren.js"></script>
+<script src="data/datalade.js"></script>
+<script src="js/thema.js"></script>
+<script>
+  // Reviewmodus alleen met ?review=1: voor een gewone bezoeker bestaat de laag niet.
+  if (new URLSearchParams(location.search).get("review") === "1") {
+    const s = document.createElement("script");
+    s.src = "js/review.js";
+    document.body.appendChild(s);
+  }
+</script>
+</body>
+</html>
