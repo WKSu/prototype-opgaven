@@ -87,7 +87,7 @@ function tabel(thema) {
       const kop = ind.groep && ind.groep !== groep ? `<tr class="groep"><th colspan="${kolommen}" scope="colgroup">${ind.groep}</th></tr>` : "";
       groep = ind.groep;
       return `${kop}
-      <tr class="ind" data-id="${ind.sleutel}" tabindex="0" aria-expanded="false">
+      <tr class="ind" data-id="${ind.sleutel}" data-onderwerp="${ind.sleutel}" data-label="${ind.naam}" tabindex="0" aria-expanded="false">
         <td>${ind.naam}</td>${G.map((g) => cel(ind, g.code)).join("")}${normCel(ind)}</tr>
       <tr class="kaart" id="k-${ind.sleutel}" hidden><td colspan="${kolommen}">${indicatorkaart(ind)}</td></tr>`;
     })
@@ -137,6 +137,8 @@ function alles() {
   veilig("kerncijfers", kerncijfers);
   veilig("themas", themas);
   veilig("legenda", legenda);
+  // De reviewmodus hangt zijn velden opnieuw aan de tabellen na elke render.
+  document.dispatchEvent(new Event("gerenderd"));
 }
 
 // Regel openklikken (muis en toetsenbord).

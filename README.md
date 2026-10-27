@@ -13,6 +13,20 @@ Openen: dubbelklik `index.html`. Geen buildstap, werkt onder `file://`.
 | `index.html` | opmaak en vaste tekst; kleurtokens gelijk aan `rayonplannen` |
 | `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen en indicatoren met waarden per gebied |
 | `js/app.js` | oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
+| `js/review.js` | reviewmodus, alleen geladen met `?review=1` |
+
+## Reviewmodus
+
+Zet `?review=1` achter de URL (`index.html?review=1`), of klik de link in de gele balk.
+Per indicator (klik de regel open): *onmisbaar · nuttig · niet interessant · anders
+vormgeven*, wat beter of anders moet, en welke opgave het raakt. Per sectie: wat mis je hier?
+Per open vraag: je antwoord.
+
+Opmerkingen staan in de `localStorage` van de reviewer; er gaat niets naar een server.
+**Kopieer als Markdown** geeft een tekst om in een issue of chat te plakken. **Download JSON**
+is de back-up en de bron van waarheid. Een opmerking hangt aan `data-onderwerp` (de
+indicatorsleutel), niet aan de koptekst. Verdwijnt een sleutel, dan staat de opmerking in de
+export onder "Onderwerp bestaat niet meer".
 
 ## Lagen
 
