@@ -48,6 +48,18 @@ const UIT_DATALADE = {
     const d = DATALADE.ov.perGebied[code].dekking;
     return { v: d.aandeel, toel: "over het looproutenetwerk" };
   },
+  "ov-vervoersmix": (code) => {
+    const m = DATALADE.ov.perGebied[code].meerzijdig;
+    return { v: m.vervoersmix.aandeel, toel: `${fmt(m.zonderBruikbaar)}% zonder bruikbare lijn` };
+  },
+  "ov-richting": (code) => {
+    const r = DATALADE.ov.perGebied[code].meerzijdig.richting;
+    return { v: r.tangentieel, toel: `${fmt(r.windrichtingen[3] + r.windrichtingen[4])}% in 3 of 4 windrichtingen` };
+  },
+  "ov-storing": (code) => {
+    const c = DATALADE.ov.perGebied[code].meerzijdig.storing.corridors[0];
+    return { v: c.verlies, toel: `bij uitval van ${c.corridor}` };
+  },
 };
 // Handmatige leveringen staan los van de datalade, elk in een eigen bestand. `geladen` zegt of
 // dat bestand er is; zo niet, dan blijft de mock-up staan.
