@@ -121,6 +121,9 @@ geregeld zijn voor een storing (vervangend vervoer, een tweede lijn)?
   de randen.
 - **De buurtkaart noemt per lijn de beste halte binnen bereik.** In een grote buurt kan een
   bewoner aan de andere kant minder vaak een vertrek hebben.
+- **Een knoop telt als zijn beste lijn.** De indicator rekent per adres met de beste lijn, niet
+  met alle lijnen samen. Capelsebrug (13 lijnen) haalt ’s avonds 4,5 per uur, net als
+  Prinsenlaan met alleen metro. Op de kaart is de kleur de beste lijn en de grootte alles samen.
 - **Kleine buurten springen.** Noord Kethel (36 adressen) en Landzicht (198) geven grote
   percentages op weinig woningen.
 

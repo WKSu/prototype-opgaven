@@ -60,6 +60,7 @@ CENTRUM = "WK059901"  # tangentieel = de lijn komt niet in gebied Rotterdam Cent
 LIJN_MIN_PCT = (
     1  # de buurtkaart noemt een lijn vanaf 1% van de woonadressen van de buurt
 )
+KNOOP_M = 150  # haltes binnen 150 m van elkaar zijn één overstappunt op de kaart
 
 
 def lees_const(pad: Path):
@@ -791,6 +792,66 @@ def ov(
             }
         )
 
+    # Overstappunten: haltes die dicht bij elkaar liggen (de metrohalte en de busperrons
+    # ernaast) worden één punt. Per lijn telt de beste halte van het punt, één keer; zo zie je
+    # hoeveel er bij een knoop samenkomt, naast de beste lijn waar de indicator op rekent.
+    def knopen_in(code):
+        leden = [
+            h
+            for h in data["haltes"]
+            if halte_gebied(h) == code
+            and any(sum(freq[(h["id"], li)]) for li in data["hlk"][h["id"]])
+        ]
+        groep = list(range(len(leden)))
+
+        def wortel(i):
+            while groep[i] != i:
+                i = groep[i]
+            return i
+
+        for i, a in enumerate(leden):
+            for j in range(i):
+                b = leden[j]
+                if meter((a["lon"], a["lat"]), (b["lon"], b["lat"])) <= KNOOP_M:
+                    groep[wortel(i)] = wortel(j)
+        per = {}
+        for i, h in enumerate(leden):
+            per.setdefault(wortel(i), []).append(h)
+        uit = []
+        for hs in per.values():
+            lijn = {}
+            for h in hs:
+                for li in data["hlk"][h["id"]]:
+                    f = [freq[(h["id"], li)][j] for j in dagdeel.values()]
+                    lijn[li] = [max(x, y) for x, y in zip(lijn.get(li, f), f)]
+            # De naam van de halte met de snelste soort OV, bij gelijke soort de meeste lijnen.
+            hoofd = min(
+                hs,
+                key=lambda h: (
+                    min(("trein", "metro", "tram", "bus").index(m) for m in h["m"]),
+                    -len(data["hlk"][h["id"]]),
+                ),
+            )
+            modi = {m for h in hs for m in h["m"]}
+            uit.append(
+                {
+                    "naam": hoofd["n"],
+                    "lon": round(sum(h["lon"] for h in hs) / len(hs), 6),
+                    "lat": round(sum(h["lat"] for h in hs) / len(hs), 6),
+                    "modi": [m for m in ("bus", "tram", "metro", "trein") if m in modi],
+                    "haltes": len(hs),
+                    "lijnen": sum(1 for f in lijn.values() if any(f)),
+                    **{
+                        k: {
+                            "beste": max(f[n] for f in lijn.values()),
+                            "samen": round(sum(f[n] for f in lijn.values()), 1),
+                        }
+                        for n, k in enumerate(dagdeel)
+                    },
+                }
+            )
+        return sorted(uit, key=lambda k: k["naam"])
+
     def lijnen_in(b):
         totaal = sum(dekking.get(b, {}).values())
         rijen = [
@@ -838,6 +899,7 @@ def ov(
                 for b in buurten_per_gebied[code]
             ],
             "haltes": sorted(haltes[code], key=lambda h: h["naam"]),
+            "knopen": knopen_in(code),
             "uurprofiel": uren,
             "gtfsPeildatum": (peildatum or dag_verkenner).isoformat()
             if eigen
