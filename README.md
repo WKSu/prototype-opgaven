@@ -4,7 +4,8 @@ Statische viewer over hoe het mobiliteitssysteem functioneert per gebied, en waa
 ten opzichte van een norm. Vervolglaag op [`rayonplannen`](https://github.com/WKSu/rayonplannen);
 de achtergrond staat in `docs/overdracht-functioneren-en-opgaven.md`.
 
-Openen: dubbelklik `index.html`. Geen buildstap, werkt onder `file://`.
+Openen: dubbelklik `index.html`. Geen buildstap, werkt onder `file://`. De kaarten halen hun
+ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven ze leesbaar, zonder ondergrond.
 
 ## Opbouw
 
@@ -12,9 +13,13 @@ Openen: dubbelklik `index.html`. Geen buildstap, werkt onder `file://`.
 |---|---|
 | `index.html` | overzicht: alle indicatoren met normenlaag (mock-up, deels echte cijfers) |
 | `parkeren.html`, `ov.html` | themaviewers: per indicator wat de datalade al kan beantwoorden en wat er nodig is |
-| `css/basis.css` | gedeelde opmaak; kleurtokens gelijk aan `rayonplannen` |
+| `css/basis.css` | gedeelde opmaak; huisstijlkleuren gemeente Rotterdam, alleen licht |
 | `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen, indicatoren en per indicator de datalade-status (handgeschreven) |
 | `data/datalade.js` | `const DATALADE`: echte cijfers, gegenereerd door `scripts/bouw_datalade.py` |
+| `data/parkeerdruk.js` | `const PARKEERDRUK`: gemeten parkeerdruk uit de parkeertellingen, gegenereerd door `scripts/bouw_parkeerdruk.py` |
+| `data/rapportcijfer.js` | `const RAPPORTCIJFER`: rapportcijfer parkeren bij de woning per gebied (Omnibusenquête), gegenereerd door `scripts/bouw_rapportcijfer.py` |
+| `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
+| `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
 | `js/thema.js` | themaviewers: kaart, tabellen en uurprofiel uit `DATALADE` |
 | `js/review.js` | reviewmodus, alleen geladen met `?review=1` |
@@ -34,6 +39,44 @@ uv run scripts/bouw_datalade.py --datalade ../wksu/prototype-overschie \
 Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
 Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
 Daarna: `uvx ruff format scripts/ && uvx ruff check scripts/`.
+
+## Parkeertellingen bijwerken
+
+`data/parkeerdruk.js` komt uit de handmatige levering in `data_manual/parkeerdruk/data`: de zips
+van de parkeertellingen (Excel per subbuurtdeel), en de shapefiles `Subbuurtdelen` en
+`parkeersectoren`. Een nieuwe telling is een nieuwe zip met de naam
+`Parkeertelling <gebied> (<projectcode>).zip`.
+
+```bash
+uv run scripts/bouw_parkeerdruk.py
+```
+
+Maatgevend is de werkdagnacht (ma–vr, start tussen 23 en 5 uur); bij meer nachten het
+gemiddelde. Een telling zonder werkdagnacht staat op de kaart, maar telt niet mee. Het script
+schrijft alleen aggregaten per subbuurtdeel, subbuurt en sector, en breekt af als een veld
+ontbreekt of een subbuurtdeel een andere buurtnaam heeft dan de shapefile.
+
+## Rapportcijfer, fietsparkeren en ruimtebeslag bijwerken
+
+```bash
+uv run scripts/bouw_rapportcijfer.py     # data_manual/rapportcijfer parkeren/*.xlsx, blad Resultaat
+uv run scripts/bouw_fietsparkeren.py     # data_manual/fietsparkeertellingen/*.zip (Ecorys)
+uv run scripts/haal_bgt.py               # BGT-extract voor het rayon bij PDOK, ~minuten
+uv run scripts/bouw_ruimtebeslag.py      # BGT + capaciteit uit de tellingen
+```
+
+Ruimtebeslag: waar geteld is, de capaciteit (algemeen + bijzonder) maal een oppervlak per plek;
+elders de BGT-parkeervlakken. Het oppervlak per plek is geijkt op de getelde subbuurtdelen, zodat
+beide bronnen op dezelfde schaal staan. De noemer is de openbare ruimte uit de BGT zonder water,
+gebouwen, erven, landbouwgrond, snelweg, spoor, landingsbaan en grote parken (aaneengesloten
+groen vanaf 1 ha). De handmatige BGT-uitsnede in `data_manual/bgt_noord_buitenring` mist
+ongeveer de helft van de vlakken en wordt niet gebruikt.
+
+Fietsparkeerdruk: alle gestalde fietsen (in, nabij en buiten een voorziening) ÷ capaciteit van de
+voorzieningen, op het drukste van de vier meetmomenten per telling.
+
+Het overzicht (`index.html`) toont alleen indicatoren waarvoor een echt cijfer geladen is; de
+rest staat met wat er nodig is in de themaviewer.
 
 ## Reviewmodus
 

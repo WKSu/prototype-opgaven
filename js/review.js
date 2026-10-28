@@ -219,10 +219,10 @@
       .rv-meningen button[aria-pressed="true"]{background:var(--schie);border-color:var(--schie);color:#fff}
       tr.ind.rv-heeft td:first-child::after{content:" ●";color:var(--schie)}
       .rv-balk{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;
-        padding:10px 16px;background:#22261F;color:#EFEEE6;font-size:13px;border-top:4px solid var(--schie)}
-      .rv-balk input{background:#3a4036;border:1px solid #5a5f54;border-radius:3px;padding:3px 8px;color:#EFEEE6;width:150px}
-      .rv-balk button{background:#EFEEE6;color:#22261F;border:0;border-radius:3px;padding:4px 10px;font-weight:700;cursor:pointer}
-      .rv-balk a{color:#EFEEE6}
+        padding:10px 16px;background:#000;color:#fff;font-size:13px;border-top:4px solid var(--schie)}
+      .rv-balk input{background:#2b2b2b;border:1px solid #666;border-radius:3px;padding:3px 8px;color:#fff;width:150px}
+      .rv-balk button{background:#fff;color:#000;border:0;border-radius:3px;padding:4px 10px;font-weight:700;cursor:pointer}
+      .rv-balk a{color:#fff}
       .rv-hint,.rv-status{opacity:.8}
       .rv-status.rv-fout{color:#F2A08C;opacity:1;font-weight:700}
       @media(max-width:600px){body.rv{padding-bottom:170px} .rv-hint{display:none}}`;

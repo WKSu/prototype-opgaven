@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<div class="prototype" role="note"><p><strong>Mock-up</strong>Cijfers zijn fictief, behalve waar ‘datalade’ bij staat. Normen zijn voorlopig. Opmerkingen? <a href="?review=1">Zet de reviewmodus aan</a>.</p></div>
+<div class="prototype" role="note"><p><strong>Prototype</strong>Alleen indicatoren met echte cijfers; bij elke waarde staat de bron. Normen zijn voorlopig. Opmerkingen? <a href="?review=1">Zet de reviewmodus aan</a>.</p></div>
 
 <header>
   <div class="hrow">
@@ -53,16 +53,16 @@
 
 <section id="s2" data-onderwerp="sectie-s2" data-label="Parkeren" data-review="tekst" data-review-vraag="Welke indicator mis je bij Parkeren?">
   <div class="eyebrow">02 · Parkeren</div>
-  <h2>Bezetting, beleving, wachtlijsten en ruimte</h2>
+  <h2>Bezetting, beleving en ruimte</h2>
   <p>Vanaf 1 december 2026 gaat in dit rayon stap voor stap betaald parkeren in. Wat je hier ziet, is dus de situatie vóór invoering: een nulmeting per buurt is nu het meest waard. Wat de datalade al kan beantwoorden, staat in de <a href="parkeren.html">Parkeren-viewer</a>.</p>
-  <div id="tabel-parkeren"></div>
+  <div id="tabel-parkeren"><p class="foot">Deze tabel wordt opgebouwd met JavaScript. Zie je deze tekst, dan zijn <code>js/app.js</code> en <code>data/</code> niet geladen: open de hele map, niet alleen dit bestand.</p></div>
 </section>
 
 <section id="s3" data-onderwerp="sectie-s3" data-label="OV" data-review="tekst" data-review-vraag="Welke indicator mis je bij OV?">
   <div class="eyebrow">03 · OV</div>
-  <h2>Frequentie, dekking en richtingen</h2>
+  <h2>Frequentie en dekking</h2>
   <p>Het aanbod volgens de dienstregeling, niet het gebruik. Over het lijnennet beslist de MRDH. Het rayonplan kan wensen onderbouwen, maar niet toezeggen. Frequentie en haltedekking zijn echte cijfers; de onderbouwing staat in de <a href="ov.html">OV-viewer</a>.</p>
-  <div id="tabel-ov"></div>
+  <div id="tabel-ov"><p class="foot">Deze tabel wordt opgebouwd met JavaScript. Zie je deze tekst, dan zijn <code>js/app.js</code> en <code>data/</code> niet geladen: open de hele map, niet alleen dit bestand.</p></div>
 </section>
 
 <section id="s4" data-onderwerp="sectie-s4" data-label="Open vragen" data-review="tekst" data-review-vraag="Welke vraag ontbreekt?" style="border-bottom:0">
@@ -70,9 +70,9 @@
   <h2>Wat de themateams nog moeten besluiten</h2>
   <div class="vragen">
     <div class="vraag" data-onderwerp="vraag-wachtlijsten" data-label="Wachtlijsten: wanneer rood?" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Wachtlijsten: wanneer rood?</b><p>Een lange wachtlijst kan een knelpunt zijn, of het bedoelde effect van een plafond. Zonder vastgesteld doel blijft het een signaal. Overweeg de mediaan of het aandeel dat langer dan een termijn wacht, in plaats van het gemiddelde.</p></div>
-    <div class="vraag" data-onderwerp="vraag-welke-bezetting-telt" data-label="Welke bezetting telt?" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Welke bezetting telt?</b><p>Vergunningen ÷ capaciteit is geen meting van parkeerdruk. De norm van 90% hoort bij een telling. Leg vast welke meting, op welk moment.</p></div>
+    <div class="vraag" data-onderwerp="vraag-welke-bezetting-telt" data-label="Welke bezetting telt?" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Welke bezetting telt?</b><p>Vergunningen ÷ capaciteit is geen meting van parkeerdruk. De norm van 90% hoort bij een telling. Voorstel in de <a href="parkeren.html#i-parkeerdruk-subbuurt">Parkeren-viewer</a>: bruto parkeerdruk op de werkdagnacht. Bevestig dat moment, en of foutparkeerders meetellen (bruto) of niet (netto).</p></div>
     <div class="vraag" data-onderwerp="vraag-garages-en-fietsparkeren" data-label="Garages en fietsparkeren" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Garages en fietsparkeren</b><p>De norm van 85% en 90% gaat over de straat. Geldt die ook voor garages en stallingen, of komt er een eigen grens?</p></div>
-    <div class="vraag" data-onderwerp="vraag-ov-zonder-norm" data-label="OV zonder norm" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>OV zonder norm</b><p>Geen van de drie OV-indicatoren heeft een norm. Welke grenzen gebruikt het OV-team voor de OV-visie 2050 en de kaart van blinde vlekken?</p></div>
+    <div class="vraag" data-onderwerp="vraag-ov-zonder-norm" data-label="OV zonder norm" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>OV zonder norm</b><p>Geen van de OV-indicatoren heeft een norm. Welke grenzen gebruikt het OV-team voor de OV-visie 2050 en de kaart van blinde vlekken?</p></div>
     <div class="vraag" data-onderwerp="vraag-meerzijdige-bereikbaarheid" data-label="Meerzijdige bereikbaarheid" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Meerzijdige bereikbaarheid</b><p>De definitie hier is een voorstel. Bevestig met het OV-team wat ‘meerzijdig’ betekent.</p></div>
     <div class="vraag" data-onderwerp="vraag-overlast" data-label="Overlast" data-review="tekst" data-review-vraag="Je antwoord of opmerking"><b>Overlast</b><p>Meldingen foutparkeren en verwijderde weesfietsen zijn nog niet aangeleverd. Beide meten ook meldgedrag en handhavingsinzet.</p></div>
   </div>
@@ -82,6 +82,10 @@
 
 <script src="data/indicatoren.js"></script>
 <script src="data/datalade.js"></script>
+<script src="data/parkeerdruk.js"></script>
+<script src="data/rapportcijfer.js"></script>
+<script src="data/ruimtebeslag.js"></script>
+<script src="data/fietsparkeren.js"></script>
 <script src="js/app.js"></script>
 <script>
   // Reviewmodus alleen met ?review=1: voor een gewone bezoeker bestaat de laag niet.
