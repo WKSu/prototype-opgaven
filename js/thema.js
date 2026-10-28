@@ -46,6 +46,8 @@ const strip = (cellen) =>
     .map(([n, l, src]) => `<div class="cell"><div class="num">${n}</div><div class="lbl">${l}</div>${src ? `<div class="src">${src}</div>` : ""}</div>`)
     .join("")}</div>`;
 const kort = (sha) => sha.slice(0, 7);
+// "2026-08-11" → "11 augustus 2026", zoals de rest van de tekst.
+const datum = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
 const bronDatalade = () => "datalade gebiedsplannen";
 const bronLoop = () => "OV-verkenner Invloedsgebied ov-haltes";
 // Waar de OV-cijfers vandaan komen, in één zin voor onder een blok.
@@ -597,7 +599,7 @@ function bediening() {
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
     <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.</p>
     ${uurprofiel()}
-    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()} Uurprofiel: dienstregeling van ${ov(F.gebieden[0].code).gtfsPeildatum}, ${bronDatalade()}.</div>`;
+    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()} Uurprofiel: dienstregeling van ${datum(ov(F.gebieden[0].code).gtfsPeildatum)}, ${bronDatalade()}.</div>`;
 }
 
 function tekenBediening() {
@@ -705,7 +707,7 @@ function haltedekking() {
     ${laagKnoppen("dek-kaart")}${loopLegenda("dek-kaart")}
     ${buurtKaart("dek-kaart", "Woonadressen binnen loopafstand", DEKKING_KL, gedektPct, gedektHover, zonePaden)}
     ${buurtTabelKop("dek-buurten", "Binnen loopafstand")}
-    <div class="foot">Naar de dichtstbijzijnde halte, ongeacht hoe vaak er iets rijdt. Woonadressen zijn adressen in panden met een woonfunctie. Buurten met weinig adressen geven grote sprongen.${OK ? ` Het loopgebied is een benadering van de meting per adres: 98% van de woningen die meetellen ligt erin, en aan de randen valt ongeveer 1 op de 10 woningen die net niet meetellen er ook in. De loopgebieden van ${MZ().loopHalteM} m komen uit de verkenner; die van ${MZ().loopMetroTreinM} m rond metro- en treinstations zijn over hetzelfde looproutenetwerk uitgerekend.` : ""} ${ovBron()}</div>`;
+    <div class="foot">Naar de dichtstbijzijnde halte, ongeacht hoe vaak er iets rijdt. Woonadressen zijn adressen in panden met een woonfunctie. Buurten met weinig adressen geven grote sprongen.${OK ? ` Het loopgebied is een benadering van de meting per adres: 98% van de woningen die meetellen ligt erin, en aan de randen valt ongeveer 1 op de 10 woningen die net niet meetellen er ook in. De loopgebieden van ${MZ().loopHalteM} m komen uit de OV-verkenner; die van ${MZ().loopMetroTreinM} m rond metro- en treinstations zijn over hetzelfde looproutenetwerk uitgerekend.` : ""} ${ovBron()}</div>`;
 }
 
 // Haltedekking: bus en tram tot 500 m, metro en trein tot 800 m. Alleen die twee afstanden
@@ -830,7 +832,7 @@ function richtingCheck() {
     .map((g) => {
       const ls = mz(g.code).richting.lijnen.filter((l) => l.bereik >= 1);
       const tang = ls.filter((l) => l.tangentieel);
-      return `<details><summary>${g.naam}: ${tang.length} van ${ls.length} lijnen tangentieel</summary><div class="scroll"><table class="data" style="min-width:560px">
+      return `<details><summary>${g.naam}: ${tang.length} van ${ls.length} lijnen rijden om het centrum heen</summary><div class="scroll"><table class="data" style="min-width:560px">
         <thead><tr><th>Lijn</th><th>Soort</th><th>Traject</th><th>Rijdt door het centrum</th><th>Bereikt</th></tr></thead><tbody>
         ${[...tang, ...ls.filter((l) => !l.tangentieel)].map((l) => `<tr data-koppel="${sleutel("lijn", l.id)}"><td>${l.lijn}</td><td>${l.modus}</td><td>${l.traject && l.traject !== "lijn" ? l.traject : "–"}</td><td>${l.zonderGeometrie ? "onbekend" : l.tangentieel ? "nee" : "ja"}</td><td>${balk(l.bereik)}</td></tr>`).join("")}
         </tbody></table></div></details>`;
@@ -848,7 +850,7 @@ function richtingCheck() {
     <p style="font-size:13.5px">Hoe donkerder de buurt, hoe meer woningen een lijn om het centrum heen op loopafstand hebben. ${OK ? "Doorgetrokken: de lijnen die om het centrum heen rijden; gestippeld: de lijnen erdoor. Wijs een buurt aan om alleen zijn lijnen te zien, of een lijn om hem in de tabellen terug te vinden." : ""}</p>
     ${buurtKaart(
       "tang-kaart",
-      "Tangentiële lijn op loopafstand",
+      "Lijn om het centrum heen op loopafstand",
       AANDEEL_KL,
       (b) => mzBuurt(b)?.tangentieel ?? null,
       (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen heeft een lijn om het centrum heen op loopafstand`}`,
@@ -856,8 +858,8 @@ function richtingCheck() {
       OK ? [{ geometrie: vlakGeo(OK.centrum.vlak) }] : []
     )}
     ${OK ? `<div class="legenda-rij"><span><i class="streep"></i>rijdt om het centrum heen</span><span><i class="streep stippel"></i>rijdt door het centrum</span><span><i class="arcering"></i>gebied ${OK.centrum.naam}</span></div>` : ""}
-    ${buurtTabel("tangentieel", "Tangentiële lijn op loopafstand", false)}
-    <div class="foot">Om het centrum heen (tangentieel): de lijn komt niet in gebied Rotterdam Centrum. Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is.${zonder.length ? ` Zonder route bekend: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${ovBron()}</div>`;
+    ${buurtTabel("tangentieel", "Lijn om het centrum heen", false)}
+    <div class="foot">Om het centrum heen: de lijn komt niet in gebied Rotterdam Centrum. Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is.${zonder.length ? ` Zonder route bekend: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${ovBron()}</div>`;
 }
 
 function storingstest() {
@@ -1245,13 +1247,13 @@ function woningbouwKaart(projecten) {
     .sort((a, b) => b.woningen - a.woningen)
     .map((p) => {
       const [x, y] = xy([p.lon, p.lat]);
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(2.5, Math.sqrt(p.woningen) * 0.7).toFixed(1)}" style="fill:color-mix(in srgb, var(--asfalt) ${WB_TINT[p.status]}%, var(--wit));stroke:var(--asfalt);stroke-width:.8"><title>${p.naam}: ${fmt(p.woningen)} woningen, ${WB.statussen[p.status]}, oplevering ${p.jaar ?? "onbekend"}</title></circle>`;
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(2.5, Math.sqrt(p.woningen) * 0.7).toFixed(1)}" style="fill:color-mix(in srgb, var(--asfalt) ${WB_TINT[p.status]}%, var(--wit));stroke:var(--asfalt);stroke-width:.8" data-koppel="${sleutel("project", p.naam)}" data-tip="${attr(`${p.naam}: ${fmt(p.woningen)} woningen, ${WB.statussen[p.status]}, oplevering ${p.jaar ?? "onbekend"}`)}"></circle>`;
     })
     .join("");
   const pr = (PRR ? PRR.terreinen : [])
     .map((t) => {
       const [x, y] = xy([t.lon, t.lat]);
-      return `<g><rect x="${(x - 6).toFixed(1)}" y="${(y - 6).toFixed(1)}" width="12" height="12" rx="2" style="fill:var(--schie);stroke:var(--wit);stroke-width:1.2"><title>${t.naam}: ${fmt(t.capaciteit)} plekken (NPR)</title></rect><text x="${(x + 9).toFixed(1)}" y="${(y + 4).toFixed(1)}" style="font-size:10.5px;font-weight:700">${fmt(t.capaciteit)}</text></g>`;
+      return `<g><rect x="${(x - 6).toFixed(1)}" y="${(y - 6).toFixed(1)}" width="12" height="12" rx="2" style="fill:var(--schie);stroke:var(--wit);stroke-width:1.2" data-koppel="${sleutel("pr", t.naam)}" data-tip="${attr(`${t.naam}: ${fmt(t.capaciteit)} plekken${t.verlopen ? ", registratie verlopen" : ""}`)}"></rect><text x="${(x + 9).toFixed(1)}" y="${(y + 4).toFixed(1)}" style="font-size:10.5px;font-weight:700">${fmt(t.capaciteit)}</text></g>`;
     })
     .join("");
   const legenda =
@@ -1264,7 +1266,7 @@ function woningbouwKaart(projecten) {
 function woningbouwTabel(rijen) {
   return `<div class="scroll"><table class="data" style="min-width:820px"><thead><tr><th>Project</th><th>Fase</th><th class="getal">Woningen</th><th class="getal">Sociaal</th><th class="getal">Parkeerdruk subbuurt</th><th class="getal">Auto’s per woonadres</th><th class="getal">Auto’s bij huidig autobezit</th><th>Metro of trein</th><th>Naaste P+R</th></tr></thead><tbody>
     ${rijen
-      .map((p) => `<tr><td>${p.naam}<div class="toel">${p.buurt}, ${GEBIED[p.gebied]}</div></td><td>${WB.statussen[p.status]}<div class="toel">oplevering ${p.jaar ?? "onbekend"}</div></td>
+      .map((p) => `<tr data-koppel="${sleutel("project", p.naam)}"><td>${p.naam}<div class="toel">${p.buurt}, ${GEBIED[p.gebied]}</div></td><td>${WB.statussen[p.status]}<div class="toel">oplevering ${p.jaar ?? "onbekend"}</div></td>
         <td class="getal">${fmt(p.woningen)}</td><td class="getal">${p.woningen ? fmt((100 * p.sociaal) / p.woningen) + "%" : "–"}</td>
         <td class="getal">${p.druk == null ? '<span class="toel">niet geteld</span>' : fmt(p.druk, 1) + "%"}</td><td class="getal">${fmt(p.autobezit, 2)}</td><td class="getal">${p.autos == null ? "–" : "~" + fmt(Math.round(p.autos / 10) * 10)}</td>
         <td>${p.knoop ? `${p.knoop.naam}<div class="toel">${fmt(Math.round(p.knoop.m / 50) * 50)} m</div>` : "–"}</td><td>${p.pr ? `${p.pr.naam.replace(/^P\+R /, "")}<div class="toel">${fmt(Math.round(p.pr.m / 100) * 100)} m · ${fmt(p.pr.capaciteit)} plekken</div>` : "–"}</td></tr>`)
@@ -1275,7 +1277,7 @@ function prTabel() {
   const t = PRR.terreinen;
   return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>P+R</th><th class="getal">Plekken</th><th class="getal">Laadpunten</th><th>Ligging</th><th>NPR-gegevens</th></tr></thead><tbody>
     ${t
-      .map((r) => `<tr><td>${r.naam}<div class="toel">${r.plaats}</div></td><td class="getal">${fmt(r.capaciteit)}</td><td class="getal">${fmt(r.laadpunten)}</td>
+      .map((r) => `<tr data-koppel="${sleutel("pr", r.naam)}"><td>${r.naam}<div class="toel">${r.plaats}</div></td><td class="getal">${fmt(r.capaciteit)}</td><td class="getal">${fmt(r.laadpunten)}</td>
         <td>${r.inRayon ? "in het rayon" : `${fmt(Math.round(r.afstandM / 50) * 50)} m buiten het rayon`}</td>
         <td>capaciteit sinds ${r.specificatieVanaf}${r.verlopen ? ' <span class="toel">· registratie verlopen</span>' : ""}</td></tr>`)
       .join("")}</tbody></table></div>`;
@@ -1304,14 +1306,14 @@ function woningbouwEnPR() {
       <p style="font-size:13.5px">‘Auto’s bij huidig autobezit’ is een orde van grootte: het aantal woningen maal het autobezit per woonadres in de subbuurt nu. Het is geen parkeernorm en geen prognose; het laat zien wat er op de straat afkomt als de nieuwe bewoners zich gedragen als de buurt.</p>
       ${woningbouwTabel(groot.slice(0, 15))}
       <details><summary>Alle ${ps.length} projecten in de pijplijn</summary>${woningbouwTabel(groot)}</details>
-      <div class="foot">${WB.bron}. Een project hoort bij de subbuurt waarin zijn middelpunt ligt. Fasen: ${Object.values(WB.statussen).slice(1).join(", ")}; zachte plancapaciteit en studie kunnen nog veranderen of vervallen. Metro en trein: haltes uit de datalade (GTFS). Bouwen met <code>scripts/bouw_woningbouw.py</code>.</div>
+      <div class="foot">${WB.bron}. Een project hoort bij de subbuurt waarin zijn middelpunt ligt. Fasen: ${Object.values(WB.statussen).slice(1).join(", ")}; zachte plancapaciteit en studie kunnen nog veranderen of vervallen. Metro en trein: haltes uit de dienstregeling (GTFS).</div>
     </div>
     ${PRR ? `<div class="box"><h4>P+R in en rond het rayon (NPR)</h4>
       <p style="font-size:13.5px">${prIn.length} P+R-terreinen in het rayon met samen ${fmt(prIn.reduce((a, t) => a + t.capaciteit, 0))} plekken, en ${PRR.terreinen.length - prIn.length} net erbuiten (tot ${fmt(PRR.straalM)} m). Na de invoering van betaald parkeren kan wie bij de metrohalte in de wijk parkeerde, hierheen uitwijken: dit is de capaciteit om dat op te vangen. Hoe vol de terreinen zijn, staat niet in het register.</p>
       ${prTabel()}
-      <div class="foot">${PRR.bron}, opgehaald ${PRR.opgehaald}. Capaciteit uit de recentste specificatie per terrein; de datum laat zien hoe oud die is. ‘Registratie verlopen’: de geldigheid van het NPR-record is voorbij, het terrein kan er nog liggen. Ophalen met <code>scripts/haal_npr.py</code>.</div>
+      <div class="foot">${PRR.bron}, opgehaald ${datum(PRR.opgehaald)}. Capaciteit uit de recentste specificatie per terrein; de datum laat zien hoe oud die is. ‘Registratie verlopen’: de geldigheid van het NPR-record is voorbij, het terrein kan er nog liggen.</div>
     </div>` : ""}
-    <div class="nodig"><b>Nodig om dit scherper te maken</b>Bezetting per P+R (overdag, werkdag), de geplande parkeeroplossing per woningbouwproject (eigen terrein, garage, straat), en de parkeernorm die per project is toegepast.</div>
+    <div class="nodig"><b>Nog niet te zien</b>Hoe vol de P+R-terreinen zijn (overdag, op een werkdag), hoe elk woningbouwproject zijn parkeren oplost (eigen terrein, garage of straat), en welke parkeernorm er per project is toegepast.</div>
   </section>`;
 }
 
@@ -1357,7 +1359,7 @@ function markeer(keys) {
     svg.querySelectorAll("[data-koppel]").forEach((v) => {
       if (!sleutels(v).some((k) => keys.includes(k))) return;
       const o = document.createElementNS("http://www.w3.org/2000/svg", v.tagName);
-      for (const a of ["d", "cx", "cy", "r"]) if (v.hasAttribute(a)) o.setAttribute(a, v.getAttribute(a));
+      for (const a of ["d", "cx", "cy", "r", "x", "y", "width", "height", "rx"]) if (v.hasAttribute(a)) o.setAttribute(a, v.getAttribute(a));
       o.setAttribute("class", "omlijning");
       const knip = v.closest("[clip-path]");
       (knip && knip !== svg ? knip : svg).appendChild(o);

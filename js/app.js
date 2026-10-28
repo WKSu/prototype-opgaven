@@ -32,7 +32,9 @@ const alleIndicatoren = () => F.themas.flatMap((t) => t.indicatoren);
 const themaVan = (ind) => F.themas.find((t) => t.indicatoren.includes(ind));
 
 // Waar de datalade het antwoord al heeft, vervangt het echte cijfer het fictieve. Ontbreekt
-// data/datalade.js, dan blijft de mock-up staan.
+// data/datalade.js, dan blijft de mock-up staan. Alle cijfers hier zijn OV, berekend uit de
+// OV-verkenner; zo heet de bron bij de waarde ook.
+const BRON_DATALADE = "OV-verkenner";
 const UIT_DATALADE = {
   // Frequentie en haltedekking bij de standaardnorm (FUNCTIONEREN.ovKeuzes); in de OV-viewer
   // zijn ze in te stellen. De rekenregel staat in js/ov-normen.js.
@@ -122,7 +124,7 @@ function waarde(ind, code) {
   const hand = UIT_HANDMATIG[ind.sleutel];
   if (hand && hand.geladen()) return { ...hand.fn(code), echt: hand.label };
   const echt = typeof DATALADE !== "undefined" && UIT_DATALADE[ind.sleutel];
-  if (echt) return { ...echt(code), echt: "datalade" };
+  if (echt) return { ...echt(code), echt: BRON_DATALADE };
   return ind.waarden[code] || { v: null };
 }
 // Het overzicht toont alleen indicatoren met echte cijfers; de rest staat met wat er nodig is in
@@ -204,7 +206,7 @@ function tabel(thema) {
     <colgroup><col style="width:26%">${G.map(() => `<col style="width:17%">`).join("")}<col style="width:23%"></colgroup>
     <thead><tr><th>Indicator</th>${G.map((g) => `<th class="getal">${g.naam}</th>`).join("")}<th>Norm</th></tr></thead>
     <tbody>${rijen}</tbody></table></div>
-    <div class="foot">Bron per waarde: ${[...new Set(["datalade", ...Object.values(UIT_HANDMATIG).map((h) => h.label)])].map((l) => `‘${l}’`).join(", ").replace(/, ([^,]*)$/, " of $1")}. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.${weg.length ? ` Nog zonder cijfers, en daarom niet in dit overzicht: ${weg.map((i) => `<a href="${thema.pagina}#i-${i.sleutel}">${i.naam.toLowerCase()}</a>`).join(", ")}. De ${thema.naam}-viewer zegt per indicator welke data nodig is.` : ""}</div></div>`;
+    <div class="foot">Bron per waarde: ${[...new Set(getoond(thema).map((ind) => waarde(ind, G[0].code).echt).filter(Boolean))].map((l) => `‘${l}’`).join(", ").replace(/, ([^,]*)$/, " of $1")}. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.${weg.length ? ` Nog zonder cijfers, en daarom niet in dit overzicht: ${weg.map((i) => `<a href="${thema.pagina}#i-${i.sleutel}">${i.naam.toLowerCase()}</a>`).join(", ")}. In de ${thema.naam}-viewer staat per indicator wat je nog niet ziet.` : ""}</div></div>`;
 }
 
 function kerncijfers() {
