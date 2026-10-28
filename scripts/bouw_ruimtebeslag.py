@@ -248,7 +248,7 @@ def main():
     uit = {
         "bron": "BGT, actuele stand via de PDOK BGT Download API; capaciteit uit de parkeertellingen (handmatig aangeleverd)",
         "regel": "ruimtebeslag = oppervlak parkeren ÷ openbare ruimte zonder grote parken",
-        "teller": f"getelde plekken (algemeen + bijzonder) × {m2_plek:.1f} m²; zonder telling het oppervlak van de BGT-parkeervlakken",
+        "teller": f"getelde plekken (algemeen + bijzonder) × {f'{m2_plek:.1f}'.replace('.', ',')} m²; zonder telling het oppervlak van de BGT-parkeervlakken",
         "noemer": "BGT op maaiveld: wegdelen, bermen, groen en openbare verharding; zonder gebouwen, erven, water, landbouwgrond, snelweg, spoor en landingsbaan",
         "m2PerPlek": round(m2_plek, 1),
         "ijking": {
