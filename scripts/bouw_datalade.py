@@ -29,11 +29,19 @@ GEBIEDEN = [
     "WK059914",
 ]  # uit data/index.js van de datalade, niet getypt
 
-# Drempels voor haltedekking en frequentie: keuzes, geen normen. Ze staan hier zodat ze niet in
-# de rekenregels verdwijnen; de definitie in data/indicatoren.js noemt dezelfde getallen.
-LOOP_BUS_TRAM_M = 400
-LOOP_METRO_TREIN_M = 800
-AVOND_MIN_PER_RICHTING = 4
+# Haltedekking en frequentie zijn in de viewer instelbaar. Daarom schrijft dit script geen
+# cijfer bij één drempel, maar verdelingen per buurt waaruit de browser elke instelling exact
+# afleidt. De standaardnormen staan in data/indicatoren.js (ovKeuzes), de onderbouwing van de
+# loopafstanden in docs/loopafstanden.md.
+LOOP_METRO_TREIN_M = 800  # bereik voor frequentie en meerzijdig; vast, zie hieronder
+FREQ_STAP, FREQ_MAX = 0.5, 12  # klassen van de beste frequentie, per uur per richting
+DAGDELEN = {
+    "os": "ochtendspits (7–9 uur)",
+    "dal": "dal (9–16 uur)",
+    "av": "avond (18–24 uur)",
+}
+AFSTAND_BUS_STAP, AFSTAND_BUS_MAX = 50, 1000  # m lopen, klassen voor de dekking
+AFSTAND_METRO_STAP, AFSTAND_METRO_MAX = 100, 2000
 
 # Meerzijdige bereikbaarheid: ook keuzes. Bus en tram rekenen met 500 m, omdat de bron per
 # halte alleen adreslijsten tot 500 m heeft (1 km bij vier grote knopen); metro en trein met
@@ -369,7 +377,40 @@ def meerzijdig_gebied(
     }
 
 
-def meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds) -> dict:
+def bereik_per_adres(data, adressen, pdm, pds) -> dict:
+    """Per adres de (halte, lijn)-paren op loopafstand, voor alle lijnen.
+
+    Elke halte op 500 m (1 km bij de vier knopen), plus voor metro en trein het dichtstbijzijnde
+    station als dat over het looproutenetwerk binnen 800 m ligt. De bron zegt alleen hoe ver het
+    dichtstbijzijnde station is, niet welk; dat kiezen we hemelsbreed. Fijnere afstanden per
+    halte heeft de bron niet: daarom is dit bereik vast, ook als de viewer de dekking verschuift."""
+    lijnen = data["lijnen"]
+    px, py = dec_zigzag(data["px"]), dec_zigzag(data["py"])
+    bereik = {a: set() for a in adressen}
+    for h in data["haltes"]:
+        lijst = dec_oplopend(data["inc500"].get(str(h["id"]), ""))
+        lijst += dec_oplopend(data["inc1000"].get(str(h["id"]), ""))
+        paren = [(h["id"], li) for li in data["hlk"][h["id"]]]
+        for a in lijst:
+            if a in bereik:
+                bereik[a].update(paren)
+    for modus, afstand in (("metro", pdm), ("trein", pds)):
+        stations = [h for h in data["haltes"] if modus in h["m"]]
+        for a, paren in bereik.items():
+            if afstand[a] > LOOP_METRO_TREIN_M:
+                continue
+            s = min(
+                stations, key=lambda h, a=a: meter((px[a], py[a]), (h["lon"], h["lat"]))
+            )
+            paren.update(
+                (s["id"], li)
+                for li in data["hlk"][s["id"]]
+                if lijnen[li]["mode"] == modus
+            )
+    return bereik
+
+
+def meerzijdig(data, html, datalade, woon, alle_paren) -> dict:
     """Vervoersmix, richting-check en storingstest per gebied en buurt, op woonadressen."""
     eis(data, "inc500", "inc1000", "px", "py", "lijnen", waar="loopbaarheid-ov")
     geometrie = {
@@ -390,14 +431,6 @@ def meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds) -> dict
             in_vlak(x, y, g) for deel in geometrie[li] for x, y in deel for g in centrum
         )
 
-    # Woonadressen in het rayon: pandpunt -> (gebied, buurt).
-    woon = {
-        i: (gebied_van_buurt[b], b)
-        for i, b in enumerate(pb)
-        if b in gebied_van_buurt and data["dhp"][i] and gd[i] & 1
-    }
-    px, py = dec_zigzag(data["px"]), dec_zigzag(data["py"])
-
     # Bruikbare lijnen per halte, met hun vertrekrichtingen.
     is_radiaal = {}
     bruikbaar = {}
@@ -410,29 +443,9 @@ def meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds) -> dict
                 rij.append((li, richtingen(h, geometrie.get(li, []))))
         bruikbaar[h["id"]] = rij
 
-    # Bereik per adres: elke halte op 500 m (1 km bij de vier knopen), plus voor metro en trein
-    # het dichtstbijzijnde station als dat over het looproutenetwerk binnen 800 m ligt. De bron
-    # zegt alleen hoe ver het dichtstbijzijnde station is, niet welk; dat kiezen we hemelsbreed.
-    bereik = {i: set() for i in woon}  # adres -> {(halte, lijn)}
-    for h in data["haltes"]:
-        adressen = dec_oplopend(data["inc500"].get(str(h["id"]), ""))
-        adressen += dec_oplopend(data["inc1000"].get(str(h["id"]), ""))
-        for a in adressen:
-            if a in bereik:
-                bereik[a].update((h["id"], li) for li, _ in bruikbaar[h["id"]])
-    for modus, afstand in (("metro", pdm), ("trein", pds)):
-        stations = [h for h in data["haltes"] if modus in h["m"]]
-        for a, paren in bereik.items():
-            if afstand[a] > LOOP_METRO_TREIN_M:
-                continue
-            s = min(
-                stations, key=lambda h, a=a: meter((px[a], py[a]), (h["lon"], h["lat"]))
-            )
-            paren.update(
-                (s["id"], li)
-                for li, _ in bruikbaar[s["id"]]
-                if lijnen[li]["mode"] == modus
-            )
+    # Bereik: alleen de bruikbare lijnen uit het gedeelde bereik.
+    bruikbare_paren = {(h, li) for h, rij in bruikbaar.items() for li, _ in rij}
+    bereik = {a: alle_paren[a] & bruikbare_paren for a in woon}
 
     richting_van = {(h, li): r for h in bruikbaar for li, r in bruikbaar[h]}
     naam_buurt = {
@@ -489,8 +502,7 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
         waar="loopbaarheid-ov",
     )
     buurten = json_blok(html, "d-buurt")["features"]
-    lijnen_lb = data["lijnen"]
-    avond = data["hlf_keys"].index("av")
+    dagdeel = {k: data["hlf_keys"].index(k) for k in DAGDELEN}
 
     # Buurt -> gebied op naam, met een harde controle: elke buurt van de datalade moet precies
     # één keer in de loopbaarheidsdata voorkomen.
@@ -510,34 +522,58 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
                     "naam": naam,
                     "i": lb_buurt[naam],
                     "inwoners": f["properties"].get("inwoners"),
+                    "geometrie": f["geometry"],
                 }
             )
 
-    # Haltedekking over het looproutenetwerk, per buurt. Afstanden staan per adrespunt in
-    # stappen van 10 m (201 = verder dan 2 km); het gewicht is het aantal adressen in het pand.
+    # Afstanden staan per adrespunt in stappen van 10 m (201 = verder dan 2 km); het gewicht is
+    # het aantal adressen in het pand. Alleen panden met een woonfunctie binnen de gemeente.
     def dec2(s):
         return [min(int(s[i : i + 2], 36), 201) * 10 for i in range(0, len(s), 2)]
 
     pdb, pdt, pdm, pds = (dec2(data[k]) for k in ("pdb", "pdt", "pdm", "pds"))
     pb = [int(data["pb"][i : i + 2], 36) for i in range(0, len(data["pb"]), 2)]
     gd = [int(data["gd"][i : i + 2], 36) for i in range(0, len(data["gd"]), 2)]
-    totaal, gedekt = {}, {}
-    for i, b in enumerate(pb):
-        if b not in gebied_van_buurt or not data["dhp"][i] or not (gd[i] & 1):
-            continue  # alleen panden met een woonfunctie binnen de gemeente
-        n = data["nvo"][i]
-        totaal[b] = totaal.get(b, 0) + n
-        if (
-            min(pdb[i], pdt[i]) <= LOOP_BUS_TRAM_M
-            or min(pdm[i], pds[i]) <= LOOP_METRO_TREIN_M
-        ):
-            gedekt[b] = gedekt.get(b, 0) + n
+    woon = {
+        i: (gebied_van_buurt[b], b)
+        for i, b in enumerate(pb)
+        if b in gebied_van_buurt and data["dhp"][i] and gd[i] & 1
+    }
+    alle_paren = bereik_per_adres(data, woon, pdm, pds)
+    freq = {
+        (h["id"], li): f
+        for h in data["haltes"]
+        for li, f in zip(data["hlk"][h["id"]], data["hlf"][h["id"]])
+    }
 
-    # Frequentie: een halte telt mee als minstens één lijn er in de avond (18–24 uur) gemiddeld
-    # het drempelaantal vertrekken per uur per richting haalt.
-    haltes = {code: [] for code in GEBIEDEN}
-    for h in data["haltes"]:
-        code = next(
+    # Dekking: woonadressen per buurt naar loopafstand tot bus/tram en tot metro/trein, in
+    # klassen. Klasse k = afstand tot en met k stappen; de laatste klasse is 'verder'. De viewer
+    # telt bij elke instelling de klassen op, dus de uitkomst is exact, niet geïnterpoleerd.
+    def klasse(d, stap, maximum):
+        return min(-(-d // stap), maximum // stap + 1)
+
+    dekking, bediening = {}, {}
+    nb = FREQ_MAX / FREQ_STAP + 1  # laatste klasse: FREQ_MAX of meer
+    for a, (_, b) in woon.items():
+        n = data["nvo"][a]
+        i = klasse(min(pdb[a], pdt[a]), AFSTAND_BUS_STAP, AFSTAND_BUS_MAX)
+        j = klasse(min(pdm[a], pds[a]), AFSTAND_METRO_STAP, AFSTAND_METRO_MAX)
+        cel = dekking.setdefault(b, {})
+        cel[(i, j)] = cel.get((i, j), 0) + n
+        # Frequentie: de beste lijn op loopafstand, per dagdeel, in vertrekken per uur per
+        # richting. Een adres zonder enige lijn op loopafstand telt apart.
+        v = bediening.setdefault(
+            b, {"geenLijn": 0, **{k: [0] * int(nb) for k in DAGDELEN}}
+        )
+        if not alle_paren[a]:
+            v["geenLijn"] += n
+            continue
+        for k, j_dd in dagdeel.items():
+            beste = max(freq[p][j_dd] for p in alle_paren[a])
+            v[k][min(int(beste / FREQ_STAP), int(nb) - 1)] += n
+
+    def halte_gebied(h):
+        return next(
             (
                 c
                 for c in GEBIEDEN
@@ -545,24 +581,20 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
             ),
             None,
         )
+
+    haltes = {code: [] for code in GEBIEDEN}
+    for h in data["haltes"]:
+        code = halte_gebied(h)
         if code is None:
             continue
-        per_lijn = [
-            {
-                "lijn": lijnen_lb[li]["nm"],
-                "modus": lijnen_lb[li]["mode"],
-                "avond": f[avond],
-            }
-            for li, f in zip(data["hlk"][h["id"]], data["hlf"][h["id"]])
-        ]
-        beste = max((x["avond"] for x in per_lijn), default=0)
+        rij = [freq[(h["id"], li)] for li in data["hlk"][h["id"]]]
         haltes[code].append(
             {
                 "naam": h["n"],
+                "lon": h["lon"],
+                "lat": h["lat"],
                 "modi": h["m"],
-                "avondMax": beste,
-                "voldoet": beste >= AVOND_MIN_PER_RICHTING,
-                "lijnen": sorted(per_lijn, key=lambda x: -x["avond"]),
+                **{k: max((f[j] for f in rij), default=0) for k, j in dagdeel.items()},
             }
         )
 
@@ -573,62 +605,36 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
         uren = [
             sum(reeks[u] for reeks in ovg["vertrekPerUur"].values()) for u in range(24)
         ]
-        bb = buurten_per_gebied[code]
-        tot = sum(totaal.get(b["i"], 0) for b in bb)
-        ged = sum(gedekt.get(b["i"], 0) for b in bb)
-        hs = sorted(haltes[code], key=lambda h: h["naam"])
         per_gebied[code] = {
-            "frequentie": {
-                "haltes": len(hs),
-                "voldoen": sum(h["voldoet"] for h in hs),
-                "haltesLijst": hs,
-            },
-            "dekking": {
-                "woonadressen": tot,
-                "gedekt": ged,
-                "aandeel": round(100 * ged / tot, 1) if tot else None,
-                "perBuurt": [
-                    {
-                        "naam": b["naam"],
-                        "inwoners": b["inwoners"],
-                        "woonadressen": totaal.get(b["i"], 0),
-                        "aandeel": round(
-                            100 * gedekt.get(b["i"], 0) / totaal[b["i"]], 1
-                        )
-                        if totaal.get(b["i"])
-                        else None,
-                    }
-                    for b in bb
-                ],
-            },
-            "uurprofiel": uren,
-            "lijnen": [
+            "buurten": [
                 {
-                    k: l.get(k)
-                    for k in (
-                        "lijn",
-                        "soort",
-                        "traject",
-                        "ritten",
-                        "eerste",
-                        "laatste",
-                        "binnenWijk",
-                    )
+                    "naam": b["naam"],
+                    "inwoners": b["inwoners"],
+                    "woonadressen": sum(dekking.get(b["i"], {}).values()),
+                    "geometrie": b["geometrie"],
+                    "bediening": bediening.get(b["i"]),
+                    "dekking": sorted(
+                        [i, j, n] for (i, j), n in dekking.get(b["i"], {}).items()
+                    ),
                 }
-                for l in sorted(ovg["lijnen"], key=lambda l: (l["soort"], -l["ritten"]))
+                for b in buurten_per_gebied[code]
             ],
+            "haltes": sorted(haltes[code], key=lambda h: h["naam"]),
+            "uurprofiel": uren,
             "gtfsPeildatum": ovg["peildatum"],
             "gtfsBron": ovg["bron"],
         }
-    mz = meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds)
+    mz = meerzijdig(data, html, datalade, woon, alle_paren)
     for code in GEBIEDEN:
         per_gebied[code]["meerzijdig"] = mz["perGebied"][code]
     return {
         "meerzijdig": {k: v for k, v in mz.items() if k != "perGebied"},
-        "drempels": {
-            "busTramM": LOOP_BUS_TRAM_M,
-            "metroTreinM": LOOP_METRO_TREIN_M,
-            "avondPerRichting": AVOND_MIN_PER_RICHTING,
+        "bediening": {"dagdelen": DAGDELEN, "stap": FREQ_STAP, "max": FREQ_MAX},
+        "dekking": {
+            "busTramStapM": AFSTAND_BUS_STAP,
+            "busTramMaxM": AFSTAND_BUS_MAX,
+            "metroTreinStapM": AFSTAND_METRO_STAP,
+            "metroTreinMaxM": AFSTAND_METRO_MAX,
         },
         "loopbaarheidBron": "loopbaarheid-ov: CHB en GTFS via NDOV/OVapi, BAG via PDOK, looproutes uit OSM",
         "perGebied": per_gebied,
