@@ -600,7 +600,7 @@ function bediening() {
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
     <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.${uurprofielNoot()}</p>
     ${uurprofiel()}
-    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()} Uurprofiel: dienstregeling van ${datum(uurDag())}${uurDag() === D.ov.peildatum ? "" : `, ${bronDatalade()}`}.</div>`;
+    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()}${uurDag() === D.ov.peildatum ? "" : ` Uurprofiel: dienstregeling van ${datum(uurDag())}, ${bronDatalade()}.`}</div>`;
 }
 
 function tekenBediening() {
