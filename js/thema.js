@@ -233,7 +233,7 @@ function parkeerdrukKaart() {
     if (d.telling == null) return `${kop}: niet geteld`;
     const t = tellingNaam(telling(d.telling));
     if (d.druk != null) return `${kop}: ${fmt(d.druk, 1)}% op de ${MOMENT[d.moment]}, ${fmt(d.bezetting)} auto’s op ${fmt(d.capaciteit)} plekken. ${t}`;
-    if (d.hoogste) return `${kop}: geen werkdagnacht of late werkdagavond geteld. Hoogste meting ${fmt(d.hoogste.druk, 1)}% (${MOMENT[d.hoogste.soort]}). ${t}`;
+    if (d.hoogste) return `${kop}: geen maatgevend moment geteld. Hoogste meting ${fmt(d.hoogste.druk, 1)}% (${MOMENT[d.hoogste.soort]}). ${t}`;
     return `${kop}: geteld, maar geen openbare parkeerplaatsen. ${t}`;
   };
   const paden = P.subbuurtdelen.map((d) => `<path d="${pad(d.geometrie)}" fill="${vulling(d)}"><title>${titel(d)}</title></path>`).join("");
@@ -250,7 +250,7 @@ function parkeerdrukKaart() {
     .map((s) => `<path d="${pad(s.geometrie)}" style="fill:none;stroke:var(--asfalt);stroke-width:1.4;stroke-dasharray:5 3;pointer-events:none"/>`)
     .join("")}</g>${sectorLabels(eigen, xy)}`;
   const legenda = drukLegenda(
-    `<span><i style="background:${ROOD_ARCERING};border-color:var(--rood)"></i>subbuurt boven 90%: norm overschreden</span><span><i style="background:${ARCERING}"></i>geteld, geen werkdagnacht of -avond</span><span><i style="background:var(--beton)"></i>geteld, geen plekken</span><span><i style="background:var(--beton-diep)"></i>niet geteld</span><span><i style="border:1.5px dashed var(--asfalt);background:transparent"></i>parkeersector</span>`
+    `<span><i style="background:${ROOD_ARCERING};border-color:var(--rood)"></i>subbuurt boven 90%: norm overschreden</span><span><i style="background:${ARCERING}"></i>geteld, geen maatgevend moment</span><span><i style="background:var(--beton)"></i>geteld, geen plekken</span><span><i style="background:var(--beton-diep)"></i>niet geteld</span><span><i style="border:1.5px dashed var(--asfalt);background:transparent"></i>parkeersector</span>`
   );
   return `<div class="legenda-rij"><b>Bruto parkeerdruk, werkdagnacht</b>${legenda}</div>
     <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de subbuurtdelen met de gemeten parkeerdruk op de werkdagnacht">${arceerPatroon("pd-arcering")}${roodPatroon("pd-rood")}${rayonKnip("pd-rayon", pad)}${ondergrond}${sluier(P.subbuurtdelen, pad, W, hoogte)}${paden}${rood}${sectoren}${gebiedLabels(P.subbuurtdelen, xy)}${bronvermelding(W, hoogte)}</svg>`;
@@ -262,7 +262,7 @@ function tellingenTabel() {
     .map((t) => {
       const ms = t.metingen
         .map((m) => {
-          const nacht = m.soort === t.maatgevend;
+          const nacht = t.maatgevendMetingen.includes(m.id);
           const w = m.druk == null ? 0 : (110 * m.druk) / max;
           return `<div style="display:grid;grid-template-columns:1fr 118px 4.2em;gap:8px;align-items:center;${nacht ? "font-weight:700" : ""}">
             <span>${m.id} · ${m.dag.toLowerCase()} ${m.tijd} · ${MOMENT[m.soort]}</span>
@@ -279,7 +279,7 @@ function subbuurtDrukTabel(rijen) {
   return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>Subbuurt</th><th>Buurt</th><th>Gebied</th><th class="getal">Plekken</th><th>Druk</th><th class="getal">Geteld</th></tr></thead><tbody>
     ${rijen
       .map((s) => `<tr><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.capaciteit)}</td>
-        <td><span class="staaf" style="width:${Math.min(s.druk, 140).toFixed(0)}px"></span>${fmt(s.druk, 1)}%${RAYON.has(s.gebied) ? "" : ' <span class="toel">werkdagavond</span>'}</td>
+        <td><span class="staaf" style="width:${Math.min(s.druk, 140).toFixed(0)}px"></span>${fmt(s.druk, 1)}%${RAYON.has(s.gebied) ? "" : ` <span class="toel">${MOMENT[(P.subbuurtdelen.find((d) => d.gebied === s.gebied && d.moment) || {}).moment] || ""}</span>`}</td>
         <td class="getal">${s.geteld} van ${s.delen} ${s.delen === 1 ? "deel" : "delen"}${s.volledig ? "" : " <span class=\"toel\">deels</span>"}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
@@ -288,7 +288,9 @@ function parkeerdrukTelling() {
   const per = Object.fromEntries(ALLE_GEBIEDEN.map((g) => [g.code, drukPerGebied(g.code)]));
   const nachten = P.tellingen.filter((t) => t.metingen.some((m) => m.soort === "werkdagnacht"));
   const zonderNacht = P.tellingen.filter((t) => !t.maatgevend);
-  const avond = P.tellingen.filter((t) => t.maatgevend === "werkdagavond");
+  const anders = P.tellingen.filter((t) => t.maatgevend && t.maatgevend !== "werkdagnacht");
+  // Moment per extra gebied, uit zijn subbuurtdelen: daar is het niet de werkdagnacht.
+  const momentVan = (code) => (P.subbuurtdelen.find((d) => d.gebied === code && d.moment) || {}).moment;
   const nachtDruk = (t) => t.metingen.find((m) => m.soort === "werkdagnacht").druk;
   const nachtDrukst = nachten.filter((t) => t.metingen.every((m) => (m.druk ?? 0) <= nachtDruk(t)));
   const alle = ALLE_GEBIEDEN.flatMap((g) => per[g.code].geteld).sort((a, b) => b.druk - a.druk);
@@ -297,10 +299,10 @@ function parkeerdrukTelling() {
       const p = per[g.code];
       const extra = !RAYON.has(g.code);
       if (!p.geteld.length) return ["–", `geen werkdagnachttelling in ${g.naam}`, `0 van ${p.totaal} subbuurten geteld`];
-      return [`${p.boven.length} van ${p.geteld.length}`, `getelde subbuurten in ${g.naam} boven 90% op de ${extra ? "werkdagavond" : "werkdagnacht"}`, `${p.geteld.length} van ${p.totaal} geteld · ${p.tussen.length} tussen 85% en 90%${extra ? ` · ${EXTRA.find((x) => x.code === g.code).toelichting}` : ""}`];
+      return [`${p.boven.length} van ${p.geteld.length}`, `getelde subbuurten in ${g.naam} boven 90% op de ${extra ? MOMENT[momentVan(g.code)] : "werkdagnacht"}`, `${p.geteld.length} van ${p.totaal} geteld · ${p.tussen.length} tussen 85% en 90%${extra ? ` · ${EXTRA.find((x) => x.code === g.code).toelichting}` : ""}`];
     }))}
     <h4 style="margin-top:18px">Gemeten parkeerdruk per subbuurtdeel</h4>
-    <p style="font-size:13.5px">De werkdagnacht is maatgevend: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen die dat moment meten, is het ook het drukste moment (tabel hieronder). ${avond.map((t) => `${t.naam} heeft geen werkdagnacht; daar telt de werkdagavond (${t.metingen.find((m) => m.soort === "werkdagavond").tijd}).`).join(" ")} ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen van beide; die vlakken zijn gearceerd en tellen niet mee.</p>
+    <p style="font-size:13.5px">De werkdagnacht is maatgevend: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen die dat moment meten, is het ook het drukste moment (tabel hieronder). ${anders.map((t) => { const m = t.metingen.find((x) => t.maatgevendMetingen.includes(x.id)); return `${t.naam} is een bedrijventerrein zonder werkdagnacht; daar telt de ${m.dag.trim().toLowerCase()}middag (${m.tijd}), als de druk er het hoogst is.`; }).join(" ")} ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen van beide; die vlakken zijn gearceerd en tellen niet mee.</p>
     ${parkeerdrukKaart()}
     <h4 style="margin-top:22px">Welk moment is maatgevend?</h4>
     <p style="font-size:13.5px">Per telling de druk op elk meetmoment. Vet is het maatgevende moment.</p>
