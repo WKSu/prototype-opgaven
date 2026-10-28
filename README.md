@@ -16,6 +16,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `css/basis.css` | gedeelde opmaak; huisstijlkleuren gemeente Rotterdam, alleen licht |
 | `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen, indicatoren en per indicator de datalade-status (handgeschreven) |
 | `data/datalade.js` | `const DATALADE`: echte cijfers, gegenereerd door `scripts/bouw_datalade.py` |
+| `data/ov-kaart.js` | `const OVKAART`: lijnroutes, loopgebieden rond haltes en de omtrek van gebied Rotterdam Centrum voor de OV-kaarten, gegenereerd door `scripts/bouw_ovkaart.py`; alleen vormen, geen cijfers |
 | `data/parkeerdruk.js` | `const PARKEERDRUK`: gemeten parkeerdruk uit de parkeertellingen, gegenereerd door `scripts/bouw_parkeerdruk.py` |
 | `data/rapportcijfer.js` | `const RAPPORTCIJFER`: rapportcijfer parkeren bij de woning per gebied (Omnibusenquête), gegenereerd door `scripts/bouw_rapportcijfer.py` |
 | `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
@@ -23,7 +24,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `data/pr.js` | `const PR`: P+R-terreinen met capaciteit uit het Nationaal Parkeerregister (RDW), opgehaald met `scripts/haal_npr.py` |
 | `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
-| `js/thema.js` | themaviewers: kaarten, tabellen, schuifjes en uurprofiel; tabellen boven 8 rijen klappen in |
+| `js/thema.js` | themaviewers: kaarten, tabellen, schuifjes en uurprofiel; tabellen boven 8 rijen klappen in. In de OV-viewer opent een gekozen buurt een buurtkaart met al zijn cijfers |
 | `js/ov-normen.js` | frequentie en haltedekking bij een instelbare norm, gedeeld door overzicht en OV-viewer |
 | `js/review.js` | reviewmodus, alleen geladen met `?review=1` |
 
@@ -37,6 +38,8 @@ git clone --depth 1 https://github.com/WKSu/prototype-overschie ../wksu/prototyp
 git clone --depth 1 https://github.com/WKSu/loopbaarheid-ov ../wksu/loopbaarheid-ov
 uv run scripts/bouw_datalade.py --datalade ../wksu/prototype-overschie \
     --loopbaarheid ../wksu/loopbaarheid-ov/index.html
+uv run scripts/bouw_ovkaart.py --datalade ../wksu/prototype-overschie \
+    --loopbaarheid ../wksu/loopbaarheid-ov/index.html     # na bouw_datalade.py
 ```
 
 Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
@@ -63,6 +66,25 @@ adreslijsten tot 500 m), 800 m naar metro en trein. Een lijn telt mee bij minste
 per uur per richting in het dal. Een corridor is een lijn met de lijnen van dezelfde vervoerwijze
 die de helft van zijn haltes delen. Alle drempels staan bovenaan `scripts/bouw_datalade.py`.
 Het bereik binnen 30 minuten vraagt een reisplanner en banen per locatie; die zijn er nog niet.
+
+### OV-kaarten uitleggen
+
+Elke OV-kaart toont eerst de uitkomst per buurt; wie wil weten waar die vandaan komt, schakelt een
+laag bij. Frequentie en haltedekking hebben een laag **loopgebied van de haltes**: wat binnen
+loopafstand ligt van een halte die de norm haalt. De loopgebieden van 500 m (1 km rond de grote
+knopen) komen uit de verkenner; die van 800 m rond metro- en treinstations berekent
+`scripts/bouw_ovkaart.py` over hetzelfde looproutenetwerk, met 30 m aan weerszijden van de route
+(geijkt met `--ijk`: dan vallen de eigen 500 m-gebieden samen met die van de bron). Het blijft een
+benadering van de meting per adres: ongeveer 98% van de woningen die meetellen ligt erin, en aan de
+randen ook ongeveer 1 op de 10 die net niet meetellen. Bij een andere loopafstand dan 500/800 m
+toont de haltedekking daarom alleen de buurten.
+
+De richting-check tekent de bruikbare lijnen, doorgetrokken als ze om het centrum heen rijden, en
+gebied Rotterdam Centrum zelf. De storingstest heeft een kiezer: zet een verbinding op zwart en de
+kaart toont wie dan zonder bruikbaar OV zit. De groepen worden daarvoor over het hele rayon gevormd;
+het verlies per gebied is gelijk aan dat in de tabel per gebied. Een gekozen buurt (klik, of de
+kiezer bovenaan) geldt voor alle kaarten en opent een buurtkaart met de cijfers bij de huidige
+instellingen en de lijnen op loopafstand, met hun vertrekken per dagdeel.
 
 ## Parkeertellingen bijwerken
 
