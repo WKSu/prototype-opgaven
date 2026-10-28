@@ -37,6 +37,9 @@ GEBIEDEN = {
 # Overschie en is geteld. Telt niet mee in de gebiedscijfers van het overzicht.
 EXTRA = {18: ("WK059918", "Spaanse Polder")}
 ALLE = {**GEBIEDEN, **{k: v[0] for k, v in EXTRA.items()}}
+# Telling zonder werkdagnacht waar een ander moment maatgevend is, per projectcode. De Spaanse
+# Polder is een bedrijventerrein: de druk zit overdag. Keuze themateam 28-10-2026: dinsdagmiddag.
+MAATGEVEND_ANDERS = {"202210P0036": "M1"}
 WERKDAGEN = {"maandag", "dinsdag", "woensdag", "donderdag", "vrijdag"}
 VEREENVOUDIG_M = 8  # Douglas-Peucker in RD-meters; de kaart is zo’n 19 m per pixel
 NODIG = [
@@ -290,23 +293,19 @@ def main():
 
     peil = [max(dag(m["datum"]) for m in t["metingen"]) for t in tellingen]
 
-    # Maatgevend per telling: de werkdagnacht. Zonder nacht de werkdagavond, als die om 20 uur
-    # of later begint (de Spaanse Polder: dinsdag 20-24 uur); anders geen cijfer.
-    def laat(m: dict) -> bool:
-        return int(re.match(r"\s*(\d{1,2})", m["tijd"]).group(1)) >= 20
-
+    # Maatgevend per telling: de metingen op de werkdagnacht, of de meting uit
+    # MAATGEVEND_ANDERS. Zonder beide geen cijfer.
     maat = []
     for t in tellingen:
-        soorten = {m["soort"] for m in t["metingen"]}
-        avond = any(m["soort"] == "werkdagavond" and laat(m) for m in t["metingen"])
-        maat.append(
-            "werkdagnacht"
-            if "werkdagnacht" in soorten
-            else "werkdagavond"
-            if avond
-            else None
-        )
-        t["maatgevend"] = maat[-1]
+        if t["code"] in MAATGEVEND_ANDERS:
+            ids = {MAATGEVEND_ANDERS[t["code"]]}
+        else:
+            ids = {m["id"] for m in t["metingen"] if m["soort"] == "werkdagnacht"}
+        eis({m["id"] for m in t["metingen"]}, *ids, waar=t["code"])
+        maat.append(ids)
+        soort = {m["soort"] for m in t["metingen"] if m["id"] in ids}
+        t["maatgevend"] = soort.pop() if soort else None
+        t["maatgevendMetingen"] = sorted(ids)
 
     delen = []
     volgorde = sorted(sbd, key=lambda k: sbd[k][0]["TEKST"])
@@ -318,12 +317,14 @@ def main():
         if len({m["telling"] for m in ms}) > 1:
             kies = max(
                 {m["telling"] for m in ms},
-                key=lambda i: (maat[i] == "werkdagnacht", maat[i] is not None, peil[i]),
+                key=lambda i: (
+                    tellingen[i]["maatgevend"] == "werkdagnacht",
+                    bool(maat[i]),
+                    peil[i],
+                ),
             )
             ms = [m for m in ms if m["telling"] == kies]
-        nacht = [
-            m for m in ms if maat[m["telling"]] and m["soort"] == maat[m["telling"]]
-        ]
+        nacht = [m for m in ms if m["meting"] in maat[m["telling"]]]
         cap = sum(m["cap"] for m in nacht) / len(nacht) if nacht else None
         bez = sum(m["bez"] for m in nacht) / len(nacht) if nacht else None
         hoogste = max(
@@ -425,7 +426,7 @@ def main():
     uit = {
         "bron": "Parkeertellingen gemeente Rotterdam (handmatig aangeleverd), subbuurtdelen en parkeersectoren (shapefiles)",
         "regel": "bruto parkeerdruk = (correct geparkeerd op algemene plekken + foutgeparkeerd) ÷ actuele capaciteit algemene plekken",
-        "maatgevend": "werkdagnacht: meting op maandag t/m vrijdag die start tussen 23 en 5 uur; bij meer nachten het gemiddelde. Zonder werkdagnacht de werkdagavond vanaf 20 uur",
+        "maatgevend": "werkdagnacht: meting op maandag t/m vrijdag die start tussen 23 en 5 uur; bij meer nachten het gemiddelde. Spaanse Polder (bedrijventerrein): dinsdagmiddag",
         "extraGebieden": [
             {
                 "code": c,
