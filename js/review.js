@@ -10,7 +10,10 @@
 // bewaarplaats: het geëxporteerde bestand is de bron van waarheid.
 
 (() => {
-  const SLEUTEL = "opgavenreview/" + FUNCTIONEREN.rayon.code;
+  // Eén dossier per pagina. Het overzicht houdt de oorspronkelijke sleutel, zodat eerdere
+  // opmerkingen niet wegvallen.
+  const PAGINA = document.body.dataset.pagina || "";
+  const SLEUTEL = "opgavenreview/" + FUNCTIONEREN.rayon.code + (PAGINA ? "/" + PAGINA : "");
   const MENINGEN = {
     onmisbaar: "Onmisbaar",
     nuttig: "Nuttig",
@@ -108,7 +111,7 @@
   // Volgorde van de pagina, gegroepeerd per sectie.
   function markdown() {
     const uit = [
-      `# Review functioneren · ${FUNCTIONEREN.rayon.naam}\n`,
+      `# Review · ${document.title}\n`,
       `Reviewer: ${dossier.reviewer || "onbekend"} · ${new Date().toLocaleDateString("nl-NL")}`,
       "_De waarden in de viewer zijn fictief; het gaat om de indicatoren en de vorm._\n",
     ];
@@ -119,7 +122,7 @@
       uit.push(`## ${sec.dataset.label}\n`);
       ankers.forEach((a) => {
         gezien.add(a.dataset.onderwerp);
-        uit.push(blok(a === sec ? sec.dataset.reviewVraag : a.dataset.label, a.dataset.onderwerp));
+        uit.push(blok(a === sec && sec.dataset.reviewVraag ? sec.dataset.reviewVraag : a.dataset.label, a.dataset.onderwerp));
       });
     });
     const wees = Object.keys(dossier.opmerkingen).filter((s) => !gezien.has(s));
@@ -134,7 +137,7 @@
     const d = new Date();
     const jjmmdd = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate()].map((n) => String(n).padStart(2, "0")).join("");
     const wie = (dossier.reviewer || "reviewer").trim().replace(/[^\p{L}\p{N}]+/gu, "-");
-    return `${jjmmdd}_${wie}_review_functioneren.${ext}`;
+    return `${jjmmdd}_${wie}_review_functioneren${PAGINA ? "_" + PAGINA : ""}.${ext}`;
   }
   function download(naam, inhoud, type) {
     const a = document.createElement("a");
@@ -187,8 +190,8 @@
       <span class="rv-telling"></span>
       <button type="button" data-actie="kopieer">Kopieer als Markdown</button>
       <button type="button" data-actie="exporteer">Download JSON</button>
-      <a href="index.html">Sluiten</a>
-      <span class="rv-hint">Klik een indicator open om te reageren.</span>
+      <a href="${location.pathname.split("/").pop() || "index.html"}">Sluiten</a>
+      <span class="rv-hint">${document.body.dataset.reviewHint || "Klik een indicator open om te reageren."}</span>
       <span class="rv-status" aria-live="polite"></span>`;
     document.body.appendChild(b);
     telling = b.querySelector(".rv-telling");

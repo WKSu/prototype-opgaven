@@ -1,7 +1,9 @@
-// Eerste laag: indicatoren voor Parkeren en OV in rayon Noord buiten de Ring.
-// ALLE WAARDEN ZIJN FICTIEF. Dit bestand is de naad voor de volgende laag: daar wordt het
-// gegenereerd uit een vastgepinde snapshot van rayonplannen, met dezelfde vorm.
-// Gebiedscodes komen uit rayonplannen/data/index.js (@ e4e877f), niet met de hand bedacht.
+// Indicatoren voor Parkeren en OV in rayon Noord buiten de Ring.
+// De waarden hier zijn FICTIEF. Waar de datalade het antwoord al heeft, vervangt js/app.js ze
+// door het echte cijfer uit data/datalade.js (gegenereerd door scripts/bouw_datalade.py).
+// Per indicator staat in `datalade` wat de gepubliceerde datalade nu kan beantwoorden en wat
+// er nog nodig is; de themaviewers (parkeren.html, ov.html) lezen datzelfde veld.
+// Gebiedscodes komen uit rayonplannen/data/index.js, niet met de hand bedacht.
 // Een .js met één const in plaats van .json, zodat de pagina onder file:// werkt.
 const FUNCTIONEREN = {
   rayon: { code: "RAYON_NOORD_BUITEN", naam: "Noord buiten de Ring" },
@@ -14,13 +16,12 @@ const FUNCTIONEREN = {
   // Alleen normen met een aanwijsbaar document. Zonder norm is een waarde hooguit een
   // signaal en kleurt hij nooit rood.
   normen: {
-    parkeerdruk: {
+    "parkeerdruk-subbuurt": {
       soort: "beleid",
-      grens: 90,
-      streef: 85,
+      grens: 1,
       richting: "boven",
-      tekst: "rood vanaf 90%, aandacht boven 85%",
-      document: "Nota Betaald parkeren in Rotterdam (2019)",
+      tekst: "rood vanaf één subbuurt boven 90%",
+      document: "Nota Betaald parkeren in Rotterdam (2019): streven maximaal 85%, boven 90% maatregelen",
     },
     rapportcijfer: {
       soort: "afspraak",
@@ -35,23 +36,29 @@ const FUNCTIONEREN = {
     {
       sleutel: "parkeren",
       naam: "Parkeren",
+      pagina: "parkeren.html",
       indicatoren: [
         {
-          sleutel: "parkeerdruk-straat",
+          sleutel: "parkeerdruk-subbuurt",
           groep: "Bezetting",
-          naam: "Parkeerdruk op straat",
-          eenheid: "%",
-          norm: "parkeerdruk",
-          definitie: "Bezette plekken ÷ capaciteit op het drukste moment, per parkeersector. Per gebied tonen we de drukste sector.",
-          niveau: "parkeersector",
-          bron: "Parkeertellingen, gemeente Rotterdam",
+          naam: "Subbuurten met parkeerdruk boven 90%",
+          eenheid: "subbuurten",
+          norm: "parkeerdruk-subbuurt",
+          definitie: "Aantal subbuurten waar de gemeten parkeerdruk op straat boven 90% ligt: bezette plekken ÷ capaciteit op het drukste moment.",
+          niveau: "subbuurt",
+          bron: "Parkeerdrukmetingen, gemeente Rotterdam",
           data: "beschikbaar, proces nodig voor betere data",
           actie: "Maatregelen volgens de nota: regulering, uitbreiding of verschuiving naar garages.",
-          letop: "Een gebiedsgemiddelde maskeert pieken, en sectoren overlappen de gebiedsgrens. Daarom de drukste sector, geen totaal.",
+          letop: "Een telling per subbuurt laat zien waar het knelt; een gebiedsgemiddelde verbergt dat. Een subbuurt zonder meting telt niet als ‘onder 90%’.",
           waarden: {
-            WK059904: { v: null, toel: "geen sector met meting" },
-            WK059906: { v: 93, toel: "drukste sector" },
-            WK059914: { v: 87, toel: "drukste sector" },
+            WK059904: { v: 2, toel: "van 34 · 3 tussen 85% en 90%" },
+            WK059906: { v: 5, toel: "van 35 · 4 tussen 85% en 90%" },
+            WK059914: { v: 1, toel: "van 58 · 6 tussen 85% en 90%" },
+          },
+          datalade: {
+            status: "nee",
+            tekst: "Geen parkeerdruk per subbuurt. Wel vijf parkeersectoren die het rayon raken, met vergunningen ÷ capaciteit (geen telling) en een scanmeting die nog niet gevalideerd is. Overschie heeft geen sector met cijfers. Per subbuurt staat alleen het autobezit erin: de vraag, niet de druk.",
+            nodig: "Parkeerdrukmetingen per subbuurt, of per straat met de subbuurtcode: bezette plekken, capaciteit, meetmoment (dag en uur) en peildatum.",
           },
         },
         {
@@ -71,6 +78,11 @@ const FUNCTIONEREN = {
             WK059906: { v: 78 },
             WK059914: { v: 55 },
           },
+          datalade: {
+            status: "nee",
+            tekst: "Geen garagedata in de datalade.",
+            nodig: "Per gemeentelijke garage: capaciteit, gemiddelde en piekbezetting per dagdeel, peildatum.",
+          },
         },
         {
           sleutel: "bezetting-fietsparkeren",
@@ -89,6 +101,11 @@ const FUNCTIONEREN = {
             WK059906: { v: 88 },
             WK059914: { v: 104 },
           },
+          datalade: {
+            status: "nee",
+            tekst: "Geen fietsparkeertellingen in de datalade.",
+            nodig: "Per voorziening: gestalde fietsen, capaciteit en telmoment. Vooral rond de metro- en treinstations.",
+          },
         },
         {
           sleutel: "beleving-parkeren",
@@ -104,9 +121,19 @@ const FUNCTIONEREN = {
           actie: "Samen lezen met de parkeerdruk: alleen samen een stevig knelpunt.",
           letop: "Een gemiddeld cijfer verbergt verdeeldheid. Het aandeel onvoldoende laat zien hoeveel bewoners ontevreden zijn.",
           waarden: {
-            WK059904: { v: 6.4, toel: "21% onvoldoende" },
-            WK059906: { v: 5.3, toel: "38% onvoldoende" },
-            WK059914: { v: 6.8, toel: "15% onvoldoende" },
+            WK059904: { v: 6.3, toel: "19% onvoldoende" },
+            WK059906: { v: 6.7, toel: "14% onvoldoende" },
+            WK059914: { v: 6.6, toel: "14% onvoldoende" },
+          },
+          datalade: {
+            status: "deels",
+            tekst: "Niet in de datalade. Wel een rayoncijfer uit het rapport Rotterdammers over mobiliteit 2025 (tabel 6.3, vijf jaar samengevoegd), uitgewerkt in de onderzoeksnotitie van rayonplannen. Overgenomen uit een pdf, dus niet jaarlijks te herhalen.",
+            kerncijfers: [
+              ["6,6", "rapportcijfer, hele rayon"],
+              ["15%", "onvoldoende"],
+              ["1.097", "respondenten, 2021–2025"],
+            ],
+            nodig: "Tabel 6.3 per gebied als CSV, met het aantal respondenten per gebied. Een rayoncijfer zegt niet welk gebied het laagst scoort.",
           },
         },
         {
@@ -127,6 +154,11 @@ const FUNCTIONEREN = {
             WK059906: { v: 6.2, toel: "25% onvoldoende" },
             WK059914: { v: 5.4, toel: "36% onvoldoende" },
           },
+          datalade: {
+            status: "nee",
+            tekst: "Niet in de datalade. Het rapport geeft ‘stallen van de fiets’ alleen per stadsdeel, en daar staan de cijfers al tussen haakjes (te weinig waarnemingen).",
+            nodig: "Rapportcijfer en % onvoldoende per gebied, over meerdere jaren samengevoegd, met het aantal respondenten.",
+          },
         },
         {
           sleutel: "wachttijd-vergunning",
@@ -145,6 +177,11 @@ const FUNCTIONEREN = {
             WK059904: { v: null, toel: "geen vergunningplafond" },
             WK059906: { v: 7.5 },
             WK059914: { v: 1.5 },
+          },
+          datalade: {
+            status: "deels",
+            tekst: "Het aantal wachtenden per parkeersector staat erin, de wachttijd niet.",
+            nodig: "Wachttijd per sector: mediaan en aandeel dat langer wacht dan een termijn, met peildatum.",
           },
         },
         {
@@ -165,6 +202,11 @@ const FUNCTIONEREN = {
             WK059906: { v: 11.0 },
             WK059914: { v: 0.5 },
           },
+          datalade: {
+            status: "nee",
+            tekst: "Geen garagedata in de datalade.",
+            nodig: "Per gemeentelijke garage: aantal wachtenden en wachttijd (mediaan), met peildatum.",
+          },
         },
         {
           sleutel: "ruimtebeslag-parkeren",
@@ -183,6 +225,11 @@ const FUNCTIONEREN = {
             WK059906: { v: 19 },
             WK059914: { v: 14 },
           },
+          datalade: {
+            status: "deels",
+            tekst: "Niet in de datalade. De verkenner Parkeercapaciteit telt wel de parkeervakken per subbuurt, maar het oppervlak van de openbare ruimte ontbreekt.",
+            nodig: "Oppervlak openbare parkeervlakken en openbare ruimte per buurt of subbuurt, met de grens voor ‘groot park’.",
+          },
         },
         {
           sleutel: "meldingen-foutparkeren",
@@ -197,6 +244,11 @@ const FUNCTIONEREN = {
           actie: "Handhaving gericht inzetten.",
           letop: "Meldingen meten ook meldgedrag. Alleen als tweede bron gebruiken.",
           waarden: { WK059904: { v: null }, WK059906: { v: null }, WK059914: { v: null } },
+          datalade: {
+            status: "nee",
+            tekst: "Geen meldingen in de datalade.",
+            nodig: "Meldingen foutparkeren per subbuurt per jaar, zonder vrije tekst of adres.",
+          },
         },
         {
           sleutel: "weesfietsen",
@@ -211,45 +263,61 @@ const FUNCTIONEREN = {
           actie: "Stallingen opschonen en capaciteit vrijmaken.",
           letop: "Meet de inzet van handhaving net zo goed als de overlast.",
           waarden: { WK059904: { v: null }, WK059906: { v: null }, WK059914: { v: null } },
+          datalade: {
+            status: "nee",
+            tekst: "Geen weesfietsen in de datalade.",
+            nodig: "Verwijderde weesfietsen per locatie of subbuurt per jaar.",
+          },
         },
       ],
     },
     {
       sleutel: "ov",
       naam: "OV",
+      pagina: "ov.html",
       indicatoren: [
         {
           sleutel: "ov-frequentie",
           naam: "Frequentie van het OV",
           eenheid: "% van de haltes",
           norm: null,
-          definitie: "Aandeel haltes met minstens 4 vertrekken per uur in de avond, op een doordeweekse dag.",
+          definitie: "Aandeel haltes waar minstens één lijn in de avond (18–24 uur) gemiddeld 4 of meer vertrekken per uur per richting heeft, op een werkdag.",
           niveau: "halte",
-          bron: "GTFS-dienstregeling (rayonplannen, ov.js)",
+          bron: "GTFS via de verkenner Invloedsgebied ov-haltes",
           data: "beschikbaar",
           actie: "Inbrengen bij het vervoerplan van de MRDH en de OV-visie 2050. De MRDH beslist over het lijnennet.",
-          letop: "De grens van 4 vertrekken per uur is een keuze, geen vastgestelde norm. Gewogen naar inwoners is eerlijker dan per halte.",
+          letop: "De grens van 4 is een keuze, geen vastgestelde norm. Het gemiddelde over 18–24 uur ligt lager dan om 19 uur, omdat de late uren meetellen.",
           waarden: {
             WK059904: { v: 48 },
             WK059906: { v: 61 },
             WK059914: { v: 74 },
           },
+          datalade: {
+            status: "ja",
+            tekst: "Te berekenen uit de verkenner Invloedsgebied ov-haltes: per halte en per lijn het aantal vertrekken per uur per richting, per dagdeel.",
+            nodig: null,
+          },
         },
         {
           sleutel: "ov-haltedekking",
           naam: "Haltedekking",
-          eenheid: "% van de inwoners",
+          eenheid: "% van de woonadressen",
           norm: null,
-          definitie: "Aandeel inwoners binnen 400 m van een bus- of tramhalte of 800 m van een metro- of treinstation.",
-          niveau: "inwoner (100 m-vierkant)",
-          bron: "GTFS-haltes en CBS-vierkanten (verkenner loopbaarheid-ov)",
+          definitie: "Aandeel woonadressen binnen 400 m lopen van een bus- of tramhalte of 800 m van een metro- of treinstation, over het looproutenetwerk.",
+          niveau: "adres",
+          bron: "BAG, GTFS en looproutes via de verkenner Invloedsgebied ov-haltes",
           data: "beschikbaar",
           actie: "Inbrengen bij het vervoerplan van de MRDH en de kaart van blinde vlekken.",
-          letop: "Een halte met één bus per uur telt hier als dekking. Lees altijd samen met de frequentie.",
+          letop: "Een halte met één bus per uur telt als dekking. Lees altijd samen met de frequentie.",
           waarden: {
             WK059904: { v: 86 },
             WK059906: { v: 93 },
             WK059914: { v: 95 },
+          },
+          datalade: {
+            status: "ja",
+            tekst: "Te berekenen uit de verkenner Invloedsgebied ov-haltes: per adres de looproute naar de dichtstbijzijnde halte per vervoerwijze.",
+            nodig: null,
           },
         },
         {
@@ -267,6 +335,11 @@ const FUNCTIONEREN = {
             WK059904: { v: 41 },
             WK059906: { v: 35 },
             WK059914: { v: 58 },
+          },
+          datalade: {
+            status: "deels",
+            tekst: "De lijnen per gebied staan erin, met hun traject. Welke richtingen een buurt ‘meerzijdig’ bereikbaar maken, is nog niet afgesproken.",
+            nodig: "Een definitie van het OV-team: welke richtingen of bestemmingen tellen, en vanaf hoeveel is een buurt meerzijdig bereikbaar? Dit is een besluit, geen dataverzoek.",
           },
         },
       ],
