@@ -367,40 +367,149 @@ function wachtlijstTabel() {
 
 const ov = (code) => D.ov.perGebied[code];
 
-function frequentie() {
-  const dr = D.ov.drempels.avondPerRichting;
-  const klassen = [
-    ["geen vertrek in de avond", (v) => v === 0],
-    ["minder dan 2 per uur", (v) => v > 0 && v < 2],
-    [`2 tot ${dr} per uur`, (v) => v >= 2 && v < dr],
-    [`${dr} of meer per uur`, (v) => v >= dr],
-  ];
-  const kop = F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("");
-  const verdeling = klassen
-    .map(([naam, test]) => `<tr><td>${naam}</td>${F.gebieden.map((g) => `<td class="getal">${ov(g.code).frequentie.haltesLijst.filter((h) => test(h.avondMax)).length}</td>`).join("")}</tr>`)
+/* ---------- OV-normen en buurtkaarten ---------- */
+
+// Stand van de schuifjes; begint op de standaardnorm uit FUNCTIONEREN.ovKeuzes.
+const S_OV = F ? { ...F.ovKeuzes } : {};
+// Interactieve blokken binden hun schuifjes nadat de pagina is opgebouwd.
+const NA_RENDER = [];
+
+const alleBuurten = () => F.gebieden.flatMap((g) => ov(g.code).buurten.map((b) => ({ ...b, gebied: g.code })));
+const alleHaltes = () => F.gebieden.flatMap((g) => ov(g.code).haltes);
+const pctVan = (deel, geheel) => (geheel ? (100 * deel) / geheel : null);
+
+// Eén tint van licht naar donker, zoals de parkeerkaarten: een grootte, geen oordeel.
+function klassen(grenzen, labels) {
+  const tint = (v) => DRUK_TINT[grenzen.filter((g) => v >= g).length];
+  return {
+    kleur: (v) => (v == null ? "var(--beton-diep)" : `color-mix(in srgb, var(--schie) ${tint(v)}%, var(--wit))`),
+    legenda: labels.map((l, i) => `<span><i style="background:color-mix(in srgb, var(--schie) ${DRUK_TINT[i]}%, var(--wit))"></i>${l}</span>`).join(""),
+  };
+}
+const DEKKING_KL = klassen([50, 70, 85, 95], ["tot 50%", "50–70%", "70–85%", "85–95%", "95% en meer"]);
+const AANDEEL_KL = klassen([10, 30, 50, 70], ["tot 10%", "10–30%", "30–50%", "50–70%", "70% en meer"]);
+const VERLIES_KL = klassen([5, 15, 30, 60], ["tot 5%", "5–15%", "15–30%", "30–60%", "60% en meer"]);
+
+// Kaart per buurt. De vlakken dragen data-buurt, zodat een schuifje alleen de kleur en de
+// hovertekst bijwerkt (kleurKaart) en de PDOK-ondergrond niet opnieuw laadt.
+function buurtKaart(id, titel, kl, waarde, hover, extra = () => "") {
+  const bs = alleBuurten();
+  const W = 800;
+  const { xy, hoogte, ondergrond } = projectie(bs, W);
+  const pad = padVan(xy);
+  const paden = bs
+    .map((b) => `<path d="${pad(b.geometrie)}" data-buurt="${b.naam}" fill="${kl.kleur(waarde(b))}"><title>${hover(b, waarde(b))}</title></path>`)
     .join("");
-  const lijsten = F.gebieden
-    .map((g) => {
-      const hs = [...ov(g.code).frequentie.haltesLijst].sort((a, b) => b.avondMax - a.avondMax);
-      return `<details><summary>Haltes in ${g.naam} (${hs.length})</summary><div class="scroll"><table class="data" style="min-width:480px">
-        <thead><tr><th>Halte</th><th>Vervoerwijze</th><th>Beste lijn in de avond</th><th class="getal">Per uur per richting</th></tr></thead><tbody>
-        ${hs.map((h) => `<tr><td>${h.naam}</td><td>${h.modi.join(", ")}</td><td>${h.lijnen[0] ? `${h.lijnen[0].lijn} (${h.lijnen[0].modus})` : "–"}</td><td class="getal">${fmt(h.avondMax, 1)}</td></tr>`).join("")}
-        </tbody></table></div></details>`;
+  return `<div class="legenda-rij"><b>${titel}</b>${kl.legenda}</div>
+    <svg id="${id}" class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart per buurt: ${titel}">${ondergrond}${sluier(bs, pad, W, hoogte)}${paden}${extra(xy)}${gebiedLabels(bs, xy)}${bronvermelding(W, hoogte)}</svg>`;
+}
+function kleurKaart(id, kl, waarde, hover) {
+  const per = Object.fromEntries(alleBuurten().map((b) => [b.naam, b]));
+  document.querySelectorAll(`#${id} path[data-buurt]`).forEach((p) => {
+    const b = per[p.dataset.buurt], v = waarde(b);
+    p.setAttribute("fill", kl.kleur(v));
+    p.querySelector("title").textContent = hover(b, v);
+  });
+}
+// Buurttabel met een vaste kop en een tbody die een schuifje kan herschrijven; zo blijft de
+// tabel ingeklapt of uitgeklapt staan terwijl de cijfers veranderen.
+const buurtTabelKop = (id, kop) =>
+  `<div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Buurt</th><th>Gebied</th><th class="getal">Woonadressen</th><th class="getal">Inwoners</th><th>${kop}</th></tr></thead><tbody id="${id}"></tbody></table></div>`;
+function buurtRijen(id, waarde) {
+  const rijen = alleBuurten().map((b) => ({ ...b, v: waarde(b) })).sort((a, b) => (a.v ?? 999) - (b.v ?? 999));
+  document.getElementById(id).innerHTML = rijen
+    .map((b) => `<tr><td>${b.naam}</td><td>${GEBIED[b.gebied]}</td><td class="getal">${fmt(b.woonadressen)}</td><td class="getal">${fmt(b.inwoners)}</td><td>${balk(b.v)}</td></tr>`)
+    .join("");
+}
+const zetWaarde = (id, tekst) => {
+  const el = document.getElementById(id);
+  if (el) el.textContent = tekst;
+};
+
+/* ---------- frequentie: goed bediende woonadressen ---------- */
+
+const bediendPct = (b) => pctVan(OVN.bediendIn(b, S_OV.dagdeel, S_OV.perUur), b.woonadressen);
+const bediendHover = (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen`} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${D.ov.bediening.dagdelen[S_OV.dagdeel]}`;
+
+function haltePunten(xy) {
+  return `<g id="bed-haltes">${alleHaltes()
+    .map((h, i) => {
+      const [x, y] = xy([h.lon, h.lat]);
+      return `<circle data-i="${i}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6" style="stroke:var(--asfalt);stroke-width:1"><title></title></circle>`;
     })
-    .join("");
-  return `${strip(F.gebieden.map((g) => {
-      const f = ov(g.code).frequentie;
-      return [`${f.voldoen} van ${f.haltes}`, `haltes in ${g.naam} met ${dr} of meer per uur per richting in de avond`, "datalade"];
-    }))}
-    <h4 style="margin-top:18px">Hoe gevoelig is dat voor de grens van ${dr}?</h4>
-    <p style="font-size:13.5px">Haltes naar de beste lijn in de avond (gemiddeld over 18–24 uur, per richting). Ligt een groot deel net onder de grens, dan bepaalt de keuze van de grens het beeld.</p>
-    <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Beste lijn in de avond</th>${kop}</tr></thead><tbody>${verdeling}</tbody></table></div>
-    ${lijsten}
+    .join("")}</g>`;
+}
+
+function bediening() {
+  const dd = D.ov.bediening.dagdelen;
+  return `<div class="normen" aria-label="Norm instellen">
+      <div class="knoppen" role="group" aria-label="Dagdeel">${Object.entries(dd)
+        .map(([k, l]) => `<button type="button" data-dagdeel="${k}" aria-pressed="${k === S_OV.dagdeel}">${l}</button>`)
+        .join("")}</div>
+      <label>Minstens <b id="bed-per-uur-w"></b> per uur per richting
+        <input type="range" id="bed-per-uur" min="${D.ov.bediening.stap}" max="${D.ov.bediening.max}" step="${D.ov.bediening.stap}" value="${S_OV.perUur}" list="bed-ijk"></label>
+      <datalist id="bed-ijk"><option value="2"></option><option value="4"></option><option value="6"></option></datalist>
+      <button type="button" class="terug" id="bed-terug">Standaardnorm</button>
+      <div class="ijk">Standaard: avond, 4 per uur (elk kwartier), uit de blinde-vlekdefinitie in de notitie Parkeren en OV. 6 per uur noemt de verkenner de gangbare grens voor hoogfrequent OV. Geen van beide is een vastgestelde norm.</div>
+    </div>
+    <div id="bed-strip"></div>
+    <h4 style="margin-top:18px">Hoe gevoelig is dat voor de grens?</h4>
+    <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen ze ver uit elkaar, dan bepaalt de keuze van de grens het beeld.</p>
+    <div id="bed-gevoelig"></div>
+    <h4 style="margin-top:22px">Per buurt</h4>
+    <p style="font-size:13.5px">De punten zijn de haltes in het gebied: gevuld als minstens één lijn er de norm haalt.</p>
+    ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, haltePunten)}
+    ${buurtTabelKop("bed-buurten", "Goed bediend")}
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
     <p style="font-size:13.5px">Alle vertrekken vanaf haltes binnen het gebied, alle richtingen en vervoerwijzen samen. De avond (vanaf 18 uur) is donker. Zelfde schaal voor de drie gebieden.</p>
     ${uurprofiel()}
-    <div class="foot">Frequentie per halte: ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}. Een halte hoort bij een gebied als hij binnen de buurtgrenzen ligt. Uurprofiel: ${ov(F.gebieden[0].code).gtfsBron}, peildatum ${ov(F.gebieden[0].code).gtfsPeildatum}; bron: ${bronDatalade()}. De twee bronnen tellen haltes verschillend (per haltecluster en vervoerwijze tegenover per GTFS-halte).</div>`;
+    <div class="foot">Per adres de beste lijn op loopafstand: 500 m lopen naar een bus- of tramhalte (1 km bij ${D.ov.meerzijdig.drempels.knopen1km.join(", ")}) of 800 m naar een metro- of treinstation, over het looproutenetwerk. Vertrekken per uur per richting, gemiddeld over het dagdeel, op een representatieve werkdag. Woonadressen = adressen in panden met een woonfunctie. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}. Uurprofiel: ${ov(F.gebieden[0].code).gtfsBron}, peildatum ${ov(F.gebieden[0].code).gtfsPeildatum}; bron: ${bronDatalade()}.</div>`;
 }
+
+function tekenBediening() {
+  const dd = D.ov.bediening.dagdelen[S_OV.dagdeel];
+  zetWaarde("bed-per-uur-w", `${fmt(S_OV.perUur, S_OV.perUur % 1 ? 1 : 0)} (${OVN.interval(S_OV.perUur)})`);
+  document.querySelectorAll("[data-dagdeel]").forEach((k) => k.setAttribute("aria-pressed", k.dataset.dagdeel === S_OV.dagdeel));
+  document.getElementById("bed-strip").innerHTML = strip(
+    F.gebieden.map((g) => [`${fmt(OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur), 1)}%`, `van de woonadressen in ${g.naam} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${dd}`, "datalade"])
+  );
+  const grenzen = [2, 4, 6];
+  document.getElementById("bed-gevoelig").innerHTML = `<div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>${dd}</th>${grenzen
+    .map((x) => `<th class="getal">${OVN.interval(x)}</th>`)
+    .join("")}</tr></thead><tbody>${F.gebieden
+    .map((g) => `<tr><td>${g.naam}</td>${grenzen.map((x) => `<td class="getal">${fmt(OVN.bediend(g.code, S_OV.dagdeel, x), 1)}%</td>`).join("")}</tr>`)
+    .join("")}</tbody></table></div>`;
+  kleurKaart("bed-kaart", DEKKING_KL, bediendPct, bediendHover);
+  const hs = alleHaltes();
+  document.querySelectorAll("#bed-haltes circle").forEach((c) => {
+    const h = hs[c.dataset.i], v = h[S_OV.dagdeel];
+    const haalt = v >= S_OV.perUur;
+    c.style.fill = haalt ? "var(--asfalt)" : "var(--wit)";
+    c.querySelector("title").textContent = `${h.naam} (${h.modi.join(", ")}): beste lijn ${fmt(v, 1)} per uur per richting, ${dd}${haalt ? "" : " — haalt de norm niet"}`;
+  });
+  buurtRijen("bed-buurten", bediendPct);
+}
+
+NA_RENDER.push(function bedieningSchuifjes() {
+  const schuif = document.getElementById("bed-per-uur");
+  if (!schuif) return;
+  schuif.oninput = () => {
+    S_OV.perUur = Number(schuif.value);
+    tekenBediening();
+  };
+  document.querySelectorAll("[data-dagdeel]").forEach((k) => {
+    k.onclick = () => {
+      S_OV.dagdeel = k.dataset.dagdeel;
+      tekenBediening();
+    };
+  });
+  document.getElementById("bed-terug").onclick = () => {
+    Object.assign(S_OV, { dagdeel: F.ovKeuzes.dagdeel, perUur: F.ovKeuzes.perUur });
+    schuif.value = S_OV.perUur;
+    tekenBediening();
+  };
+  tekenBediening();
+});
 
 function uurprofiel() {
   const max = Math.max(...F.gebieden.flatMap((g) => ov(g.code).uurprofiel));
@@ -423,20 +532,59 @@ function uurprofiel() {
     .join("")}</div>`;
 }
 
+/* ---------- haltedekking ---------- */
+
+const gedektPct = (b) => pctVan(OVN.gedektIn(b, S_OV.loopBusTramM, S_OV.loopMetroTreinM), b.woonadressen);
+const gedektHover = (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen`} binnen ${S_OV.loopBusTramM} m lopen van bus of tram of ${S_OV.loopMetroTreinM} m van metro of trein`;
+
 function haltedekking() {
-  const dr = D.ov.drempels;
-  const rijen = F.gebieden.flatMap((g) => ov(g.code).dekking.perBuurt.map((b) => ({ ...b, gebied: g.naam }))).sort((a, b) => (a.aandeel ?? 999) - (b.aandeel ?? 999));
-  return `${strip(F.gebieden.map((g) => {
-      const d = ov(g.code).dekking;
-      return [`${fmt(d.aandeel, 1)}%`, `van de ${fmt(d.woonadressen)} woonadressen in ${g.naam}`, "datalade"];
-    }))}
-    <h4 style="margin-top:18px">Per buurt, laagste dekking eerst</h4>
-    <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Buurt</th><th>Gebied</th><th class="getal">Woonadressen</th><th class="getal">Inwoners</th><th>Binnen loopafstand</th></tr></thead><tbody>
-      ${rijen.map((b) => `<tr><td>${b.naam}</td><td>${b.gebied}</td><td class="getal">${fmt(b.woonadressen)}</td><td class="getal">${fmt(b.inwoners)}</td>
-        <td>${b.aandeel == null ? "–" : `<span class="staaf" style="width:${b.aandeel * 1.2}px"></span>${fmt(b.aandeel, 1)}%`}</td></tr>`).join("")}
-    </tbody></table></div>
-    <div class="foot">Binnen ${dr.busTramM} m lopen van een bus- of tramhalte of ${dr.metroTreinM} m van een metro- of treinstation, over het looproutenetwerk (OSM). Woonadressen = adressen in panden met een woonfunctie; een gemengd pand telt met al zijn adressen mee. Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+  const d = D.ov.dekking;
+  return `<div class="normen" aria-label="Loopafstand instellen">
+      <label>Bus en tram: <b id="dek-bus-w"></b>
+        <input type="range" id="dek-bus" min="100" max="${d.busTramMaxM}" step="${d.busTramStapM}" value="${S_OV.loopBusTramM}" list="dek-bus-ijk"></label>
+      <datalist id="dek-bus-ijk"><option value="300"></option><option value="400"></option><option value="500"></option><option value="600"></option></datalist>
+      <label>Metro en trein: <b id="dek-metro-w"></b>
+        <input type="range" id="dek-metro" min="200" max="${d.metroTreinMaxM}" step="${d.metroTreinStapM}" value="${S_OV.loopMetroTreinM}" list="dek-metro-ijk"></label>
+      <datalist id="dek-metro-ijk"><option value="800"></option><option value="1000"></option><option value="1200"></option></datalist>
+      <button type="button" class="terug" id="dek-terug">Standaardnorm</button>
+      <div class="ijk">Loopafstand over het looproutenetwerk. Ter vergelijking: de gangbare 400 m hemelsbreed naar een bushalte is ongeveer 500 m lopen; ouderen geven de voorkeur aan 200 tot 300 m; voor snel en frequent OV acht de MRDH 600 tot 800 m aanvaardbaar. Zie <code>docs/loopafstanden.md</code>.</div>
+    </div>
+    <div id="dek-strip"></div>
+    <h4 style="margin-top:18px">Per buurt</h4>
+    ${buurtKaart("dek-kaart", "Woonadressen binnen loopafstand", DEKKING_KL, gedektPct, gedektHover)}
+    ${buurtTabelKop("dek-buurten", "Binnen loopafstand")}
+    <div class="foot">Over het looproutenetwerk (OSM), naar de dichtstbijzijnde halte van elke vervoerwijze, ongeacht de frequentie. Woonadressen = adressen in panden met een woonfunctie; een gemengd pand telt met al zijn adressen mee. Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
+
+function tekenDekking() {
+  zetWaarde("dek-bus-w", `${S_OV.loopBusTramM} m`);
+  zetWaarde("dek-metro-w", `${S_OV.loopMetroTreinM} m`);
+  document.getElementById("dek-strip").innerHTML = strip(
+    F.gebieden.map((g) => [`${fmt(OVN.gedekt(g.code, S_OV.loopBusTramM, S_OV.loopMetroTreinM), 1)}%`, `van de woonadressen in ${g.naam} binnen loopafstand van een halte`, "datalade"])
+  );
+  kleurKaart("dek-kaart", DEKKING_KL, gedektPct, gedektHover);
+  buurtRijen("dek-buurten", gedektPct);
+}
+
+NA_RENDER.push(function dekkingSchuifjes() {
+  const bus = document.getElementById("dek-bus"), metro = document.getElementById("dek-metro");
+  if (!bus) return;
+  bus.oninput = () => {
+    S_OV.loopBusTramM = Number(bus.value);
+    tekenDekking();
+  };
+  metro.oninput = () => {
+    S_OV.loopMetroTreinM = Number(metro.value);
+    tekenDekking();
+  };
+  document.getElementById("dek-terug").onclick = () => {
+    Object.assign(S_OV, { loopBusTramM: F.ovKeuzes.loopBusTramM, loopMetroTreinM: F.ovKeuzes.loopMetroTreinM });
+    bus.value = S_OV.loopBusTramM;
+    metro.value = S_OV.loopMetroTreinM;
+    tekenDekking();
+  };
+  tekenDekking();
+});
 
 /* ---------- meerzijdige bereikbaarheid ---------- */
 
@@ -464,11 +612,15 @@ function buurtTabel(veld, kop, hoogIsSlecht) {
     </tbody></table></div>`;
 }
 
+// Waarde per buurt uit de meerzijdig-uitkomst, op naam (buurtnamen zijn uniek in het rayon).
+const mzBuurt = (b) => mz(b.gebied).perBuurt.find((x) => x.naam === b.naam);
+
 const SOORTEN = ["geen bruikbare lijn", "één soort", "twee soorten", "drie soorten", "vier soorten"];
 function vervoersmix() {
   return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).vervoersmix.aandeel, 1)}%`, `van de woonadressen in ${g.naam} heeft twee of meer OV-soorten op loopafstand`, "datalade"]))}
     <h4 style="margin-top:18px">Hoeveel soorten OV op loopafstand?</h4>
     ${verdelingTabel("Soorten OV", SOORTEN, (c) => mz(c).vervoersmix.verdeling)}
+    ${buurtKaart("mix-kaart", "Twee of meer OV-soorten op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.mix ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("mix", "Twee of meer soorten", false)}
     <div class="foot">${reikwijdte()} Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
@@ -493,6 +645,7 @@ function richtingCheck() {
     <h4 style="margin-top:22px">In hoeveel windrichtingen vertrek je vanaf je voordeur?</h4>
     <p style="font-size:13.5px">De richting-spreiding uit het knooppuntmodel, gemeten per adres: naar welke windrichtingen (noord, oost, zuid, west) de bruikbare lijnen op loopafstand vertrekken. Lees dit samen met de tabel hierboven. Veel windrichtingen maar weinig tangentiële lijnen betekent: de lijnen vertrekken alle kanten op, maar rijden uiteindelijk toch via het centrum.</p>
     ${verdelingTabel("Windrichtingen", RICHTINGEN, (c) => mz(c).richting.windrichtingen)}
+    ${buurtKaart("tang-kaart", "Tangentiële lijn op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.tangentieel ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("tangentieel", "Tangentiële lijn op loopafstand", false)}
     <div class="foot">Tangentieel: de lijn komt niet in gebied Rotterdam Centrum (CBS-wijk, grens uit de datalade). Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is, gezien vanaf de halte; een eindpunt telt niet.${zonder.length ? ` Zonder geometrie, dus zonder richting: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
@@ -508,6 +661,7 @@ function storingstest() {
     <h4 style="margin-top:18px">De drie zwaarste storingen per gebied</h4>
     <p style="font-size:13.5px">Per corridor: welk deel van de woonadressen geen bruikbare lijn meer op loopafstand heeft als die corridor uitvalt. Nu al zonder bruikbare lijn: ${F.gebieden.map((g) => `${g.naam} ${fmt(mz(g.code).zonderBruikbaar, 1)}%`).join(", ")}. Die tellen hier niet mee.</p>
     <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Gebied</th><th>Corridor valt uit</th><th>Verliest bruikbaar OV</th></tr></thead><tbody>${rijen}</tbody></table></div>
+    ${buurtKaart("verlies-kaart", "Verliest bruikbaar OV bij de zwaarste storing van het gebied", VERLIES_KL, (b) => mzBuurt(b)?.verlies ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("verlies", "Verliest OV bij de zwaarste storing van het gebied", true)}
     <div class="foot">Corridor: een lijn met de lijnen van dezelfde vervoerwijze die minstens de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
@@ -725,7 +879,7 @@ const VISUEEL = {
     (P ? veilig("sectoren-kaart", sectorKaart) : "") +
     sectorTabel(),
   "wachttijd-vergunning": wachtlijstTabel,
-  "ov-frequentie": frequentie,
+  "ov-frequentie": bediening,
   "ov-haltedekking": haltedekking,
   "ov-vervoersmix": vervoersmix,
   "ov-richting": richtingCheck,
@@ -733,6 +887,23 @@ const VISUEEL = {
 };
 
 /* ---------- pagina ---------- */
+
+// Boven de MAX_RIJEN rijen komt een tabel in een <details>, zodat de pagina leesbaar blijft.
+// Een tabel met data-open blijft altijd zichtbaar.
+const MAX_RIJEN = 8;
+function klapIn(root) {
+  root.querySelectorAll("table.data").forEach((tabel) => {
+    if (tabel.closest("details") || tabel.hasAttribute("data-open")) return;
+    const n = tabel.tBodies[0] ? tabel.tBodies[0].rows.length : 0;
+    if (n <= MAX_RIJEN) return;
+    const blok = tabel.parentElement.classList.contains("scroll") ? tabel.parentElement : tabel;
+    const d = document.createElement("details");
+    d.className = "tabel-in";
+    d.innerHTML = `<summary>Tabel tonen (${n} rijen)</summary>`;
+    blok.replaceWith(d);
+    d.appendChild(blok);
+  });
+}
 
 function blok(ind) {
   const dl = ind.datalade;
@@ -768,11 +939,13 @@ function pagina() {
     <section id="nodig" data-onderwerp="${THEMA.sleutel}-nodig" data-label="Wat er nodig is" data-review="tekst" data-review-vraag="Welke data kun je leveren, en wanneer?" style="border-bottom:0">
       <div class="eyebrow">Wat er nodig is</div>
       <h2>${open.length} vragen om data of een besluit</h2>
-      <div class="scroll"><table class="data" style="min-width:560px"><thead><tr><th>Indicator</th><th>Status</th><th>Nodig</th></tr></thead><tbody>
+      <div class="scroll"><table class="data" data-open style="min-width:560px"><thead><tr><th>Indicator</th><th>Status</th><th>Nodig</th></tr></thead><tbody>
         ${open.map((i) => `<tr><td><a href="#i-${i.sleutel}">${i.naam}</a></td><td>${statusChip(i.datalade.status)}</td><td>${i.datalade.nodig}</td></tr>`).join("")}
       </tbody></table></div>
       <p class="foot">Bronnen: <a href="${D.bronnen.datalade.url}#gebied=${F.rayon.code}">${bronDatalade()}</a> · <a href="${D.bronnen.loopbaarheid.url}">${bronLoop()}</a>. Regenereren met <code>scripts/bouw_datalade.py</code>.</p>
     </section>`;
+  NA_RENDER.forEach((fn) => veilig(fn.name, fn));
+  klapIn(document.getElementById("inhoud"));
   document.dispatchEvent(new Event("gerenderd"));
 }
 

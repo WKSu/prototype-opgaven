@@ -40,13 +40,15 @@ const STATUS = {
 // Waar de datalade het antwoord al heeft, vervangt het echte cijfer het fictieve. Ontbreekt
 // data/datalade.js, dan blijft de mock-up staan.
 const UIT_DATALADE = {
+  // Frequentie en haltedekking bij de standaardnorm (FUNCTIONEREN.ovKeuzes); in de OV-viewer
+  // zijn ze in te stellen. De rekenregel staat in js/ov-normen.js.
   "ov-frequentie": (code) => {
-    const f = DATALADE.ov.perGebied[code].frequentie;
-    return { v: Math.round((100 * f.voldoen) / f.haltes), toel: `${f.voldoen} van ${f.haltes} haltes` };
+    const k = OVN.keuzes();
+    return { v: OVN.bediend(code, k.dagdeel, k.perUur), toel: `${DATALADE.ov.bediening.dagdelen[k.dagdeel]}, ${OVN.interval(k.perUur)}` };
   },
   "ov-haltedekking": (code) => {
-    const d = DATALADE.ov.perGebied[code].dekking;
-    return { v: d.aandeel, toel: "over het looproutenetwerk" };
+    const k = OVN.keuzes();
+    return { v: OVN.gedekt(code, k.loopBusTramM, k.loopMetroTreinM), toel: `${k.loopBusTramM} m bus/tram, ${k.loopMetroTreinM} m metro/trein lopen` };
   },
   "ov-vervoersmix": (code) => {
     const m = DATALADE.ov.perGebied[code].meerzijdig;
