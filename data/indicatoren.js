@@ -63,8 +63,8 @@ const FUNCTIONEREN = {
           },
           datalade: {
             status: "deels",
-            tekst: "Niet in de datalade, wel in vier parkeertellingen die los zijn aangeleverd (Overschie 2024, Lage Land/Prinsenland/’s-Gravenland 2025, Nesselande 2022, Spaanse Polder 2022). Maatgevend is de werkdagnacht. Geteld zijn het grootste deel van Overschie en het zuiden en midden van Prins Alexander. Hillegersberg-Schiebroek is niet geteld, Nesselande alleen op een weekendmiddag. De datalade heeft per sector vergunningen ÷ capaciteit (geen telling) en per subbuurt het autobezit: de vraag, niet de druk.",
-            nodig: "Een werkdagnachttelling in Hillegersberg-Schiebroek (sector 80 zit op papier boven 100%), Zevenkamp, Nesselande en Kralingseveer. En de tellingen als vaste levering in de datalade, met peildatum, in plaats van losse Excelbestanden.",
+            tekst: "Niet in de datalade, wel in acht parkeertellingen die los zijn aangeleverd (2022–2025). Maatgevend is de werkdagnacht. Geteld zijn het grootste deel van Overschie, Hillegersberg en Schiebroek, en het zuiden en midden van Prins Alexander. Nesselande en een deel van Hillegersberg zijn alleen overdag geteld. De Spaanse Polder (buiten het rayon) staat er ter vergelijking bij, met de werkdagavond. De datalade heeft per sector vergunningen ÷ capaciteit (geen telling) en per subbuurt het autobezit: de vraag, niet de druk.",
+            nodig: "Een werkdagnachttelling in Molenlaankwartier, Terbregge, Zevenkamp, Nesselande, Schieveen, Noord Kethel en Kralingseveer. En de tellingen als vaste levering in de datalade, met peildatum, in plaats van losse Excelbestanden.",
           },
         },
         {
