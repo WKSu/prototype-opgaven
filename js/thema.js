@@ -1,5 +1,5 @@
 // Themaviewer: per indicator wat de gepubliceerde datalade nu kan beantwoorden.
-// Redactie (definitie, status, wat er nodig is) komt uit FUNCTIONEREN in data/indicatoren.js;
+// Redactie (vraag, meting, let op, wat ontbreekt) komt uit FUNCTIONEREN in data/indicatoren.js;
 // de cijfers uit DATALADE in data/datalade.js (gegenereerd). Echte cijfers, geen oordelen:
 // dit is onderzoek. Enige uitzondering is de rode arcering op de parkeerdrukkaart, waar een
 // norm uit FUNCTIONEREN.normen achter zit.
@@ -24,7 +24,8 @@ const EXTRA = P && P.extraGebieden ? P.extraGebieden : [];
 const ALLE_GEBIEDEN = [...(F ? F.gebieden : []), ...EXTRA];
 const RAYON = new Set(F ? F.gebieden.map((g) => g.code) : []);
 const GEBIED = Object.fromEntries(ALLE_GEBIEDEN.map((g) => [g.code, g.naam]));
-const STATUS = { ja: "Beantwoord", deels: "Deels", nee: "Niet in de datalade" };
+// Alleen wat nog niet volledig is, krijgt een label; een volledig cijfer heeft er geen nodig.
+const STATUS = { ja: "", deels: "Deels beschikbaar", nee: "Nog niet beschikbaar" };
 
 function veilig(naam, fn) {
   try {
@@ -39,16 +40,24 @@ function veilig(naam, fn) {
 
 const fmt = (v, d = 0) =>
   v == null ? "–" : v.toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
-const statusChip = (st) => `<span class="oordeel o-${st}">${STATUS[st]}</span>`;
+const statusChip = (st) => (STATUS[st] ? `<span class="oordeel o-${st}">${STATUS[st]}</span>` : "");
 const strip = (cellen) =>
   `<div class="strip">${cellen
     .map(([n, l, src]) => `<div class="cell"><div class="num">${n}</div><div class="lbl">${l}</div>${src ? `<div class="src">${src}</div>` : ""}</div>`)
     .join("")}</div>`;
 const kort = (sha) => sha.slice(0, 7);
-const bronDatalade = () => `datalade ${D.bronnen.datalade.repo} @ ${kort(D.bronnen.datalade.commit)}`;
-const bronLoop = () => `verkenner ${D.bronnen.loopbaarheid.repo} @ ${kort(D.bronnen.loopbaarheid.commit)}`;
+const bronDatalade = () => "datalade gebiedsplannen";
+const bronLoop = () => "OV-verkenner Invloedsgebied ov-haltes";
+// Waar de OV-cijfers vandaan komen, in één zin voor onder een blok.
+const ovBron = () => `Bron: dienstregeling van een werkdag (GTFS), BAG-adressen en looproutes (OpenStreetMap), via de ${bronLoop()}.`;
 
 /* ---------- parkeren ---------- */
+
+// Buurtnaam bij een subbuurtcode, voor het label op de kaart; uit de parkeertellingen.
+const buurtVan = (code) => {
+  const d = P && P.subbuurtdelen.find((x) => x.subbuurt === code);
+  return d ? d.buurt : null;
+};
 
 // Web Mercator in radialen: dezelfde projectie als de PDOK-tegels, zodat die er precies onder passen.
 const merc = ([lon, lat]) => [(lon * Math.PI) / 180, Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))];
@@ -122,15 +131,15 @@ function subbuurtKaart() {
   const klasse = (v) => grenzen.filter((g) => v >= g).length;
   const kleur = (v) => (v == null ? "var(--beton-diep)" : `color-mix(in srgb, var(--schie) ${tint[klasse(v)]}%, var(--wit))`);
   const paden = sb.kaart
-    .map((f) => `<path d="${pad(f.geometrie)}" fill="${kleur(f.autosPerWoonadres)}"><title>${f.naam} (${GEBIED[f.gebied]}): ${f.autosPerWoonadres == null ? "onbekend" : fmt(f.autosPerWoonadres, 2) + " auto’s per woonadres"}, ${fmt(f.woonadressen)} woonadressen</title></path>`)
+    .map((f) => `<path d="${pad(f.geometrie)}" data-koppel="${sleutel("subbuurt", f.code)}" fill="${kleur(f.autosPerWoonadres)}"><title>${buurtVan(f.code) || f.naam}, subbuurt ${f.naam} (${GEBIED[f.gebied]}): ${f.autosPerWoonadres == null ? "onbekend" : fmt(f.autosPerWoonadres, 2) + " auto’s per woonadres"}, ${fmt(f.woonadressen)} woonadressen</title></path>`)
     .join("");
   const labels = gebiedLabels(sb.kaart, xy);
   const legenda = ["< 0,6", "0,6–0,8", "0,8–1,0", "1,0–1,2", "≥ 1,2"]
     .map((t, i) => `<span><i style="background:color-mix(in srgb, var(--schie) ${tint[i]}%, var(--wit))"></i>${t}</span>`)
     .join("") + `<span><i style="background:var(--beton-diep)"></i>onbekend</span>`;
   const n = sb.aantalPerGebied;
-  return `<h4 style="margin-top:18px">De ${sb.kaart.length} subbuurten van het rayon, gekleurd naar autobezit</h4>
-    <p style="font-size:13.5px">Dit is de eenheid van de indicator: ${F.gebieden.map((g) => `${n[g.code]} in ${g.naam}`).join(", ")}. De kleur is de vraagkant, geen druk. Lees hem naast de telling hierboven: veel auto’s per woonadres en een volle straat versterken elkaar.</p>
+  return `<h4 style="margin-top:18px">Autobezit per subbuurt</h4>
+    <p style="font-size:13.5px">Auto’s per woonadres in ${F.gebieden.map((g) => `${n[g.code]} subbuurten in ${g.naam}`).join(", ")}: de vraag naar parkeerplekken, niet de druk. Veel auto’s per adres en een volle straat versterken elkaar.</p>
     <div class="legenda-rij"><b>Auto’s per woonadres</b>${legenda}</div>
     <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de subbuurten met het autobezit per woonadres">${ondergrond}${sluier(sb.kaart, pad, W, hoogte)}${paden}${labels}${bronvermelding(W, hoogte)}</svg>
     <div class="foot">${sb.bron}. Peiljaar ${sb.peiljaar}, niveau ${sb.niveau}. ${sb.caveat} Bron: ${bronDatalade()}.</div>`;
@@ -148,17 +157,17 @@ function sectorTabel() {
     if (!s) return "–";
     return s.nachtdruk == null ? `<span class="toel">niet geteld</span>` : `${fmt(s.nachtdruk, 1)}%<div class="toel">${s.geteld} van ${s.subbuurtdelen} ${s.subbuurtdelen === 1 ? "deel" : "delen"}</div>`;
   };
-  return `<h4 style="margin-top:22px">Wat er al lag: ${ps.rijen.length} parkeersectoren</h4>
-    <p style="font-size:13.5px">${boven.length} van de ${metCijfers.length} sectoren met cijfers zitten met vergunningen ÷ capaciteit boven 90%. De scanmeting komt nergens boven ${fmt(scanMax)}%. Beide zijn geen parkeerdruk per subbuurt. De laatste kolom is wel een telling: de werkdagnacht over de getelde subbuurtdelen waarvan het middelpunt in de sector ligt.</p>
+  return `<h4 style="margin-top:22px">Vergunningen per parkeersector</h4>
+    <p style="font-size:13.5px">Per sector het aantal vergunningen gedeeld door het aantal plekken: een bezetting op papier, geen telling. ${boven.length} van de ${metCijfers.length} sectoren met cijfers komen op papier boven 90%; de scanauto meet nergens meer dan ${fmt(scanMax)}%. De laatste kolom is wel een telling, op de werkdagnacht.</p>
     <div class="scroll"><table class="data" style="min-width:720px"><thead><tr>
       <th>Sector</th><th>Gebied</th><th class="getal">Deel in rayon</th><th class="getal">Capaciteit</th>
       <th class="getal">Vergunningen</th><th class="getal">Vergunningen ÷ capaciteit</th><th class="getal">Scanbezetting</th><th class="getal">Telling, nacht</th></tr></thead><tbody>
       ${ps.rijen
-        .map((r) => `<tr><td>${r.id}</td><td>${gebieden(r)}</td><td class="getal">${fmt(r.deelInRayon)}%</td><td class="getal">${fmt(r.capaciteit)}</td>
+        .map((r) => `<tr data-koppel="${sleutel("sector", r.id)}"><td>${r.id}</td><td>${gebieden(r)}</td><td class="getal">${fmt(r.deelInRayon)}%</td><td class="getal">${fmt(r.capaciteit)}</td>
           <td class="getal">${r.capaciteit == null ? "–" : fmt((r.vergunningenBewoners ?? 0) + (r.vergunningenBedrijven ?? 0))}</td>
           <td class="getal">${r.bezetting == null ? "–" : fmt(r.bezetting, 1) + "%"}</td><td class="getal">${r.bezettingScan == null ? "–" : fmt(r.bezettingScan, 1) + "%"}</td><td class="getal">${nacht(r.id)}</td></tr>`)
         .join("")}</tbody></table></div>
-    <div class="foot">${ps.bron}, gebouwd ${ps.gebouwd}. Vergunningen ÷ capaciteit = ${ps.bezettingRegel}. ${ps.scanCaveat} ${ps.caveat} Sectoren zonder cijfers: ${ps.zonderCijfers.join(", ")}. Bron: ${bronDatalade()}${P ? `; telling: ${P.bron}` : ""}.</div>`;
+    <div class="foot">${ps.bron}. Vergunningen ÷ capaciteit = ${ps.bezettingRegel}. ${ps.scanCaveat} ${ps.caveat} Sectoren zonder cijfers: ${ps.zonderCijfers.join(", ")}. Bron: ${bronDatalade()}${P ? `; telling: ${P.bron}` : ""}.</div>`;
 }
 
 /* ---------- parkeertellingen ---------- */
@@ -239,7 +248,8 @@ function parkeerdrukKaart() {
     if (d.hoogste) return `${kop}: geen maatgevend moment geteld. Hoogste meting ${fmt(d.hoogste.druk, 1)}% (${MOMENT[d.hoogste.soort]}). ${t}`;
     return `${kop}: geteld, maar geen openbare parkeerplaatsen. ${t}`;
   };
-  const paden = P.subbuurtdelen.map((d) => `<path d="${pad(d.geometrie)}" fill="${vulling(d)}"><title>${titel(d)}</title></path>`).join("");
+  const koppelDeel = (d) => [sleutel("subbuurt", d.subbuurt), sleutel("deel", d.code), d.telling != null ? sleutel("telling", d.telling) : ""].join(" ").trim();
+  const paden = P.subbuurtdelen.map((d) => `<path d="${pad(d.geometrie)}" data-koppel="${koppelDeel(d)}" fill="${vulling(d)}"><title>${titel(d)}</title></path>`).join("");
   // Rood mag hier: boven 90% grijpt de norm uit de nota Betaald parkeren in (FUNCTIONEREN.normen).
   // Per subbuurt, want daar gaat de norm over; over de kleur heen, zodat de klasse leesbaar blijft.
   const boven = new Set(P.subbuurten.filter((s) => s.druk > 90).map((s) => s.code));
@@ -262,7 +272,7 @@ function parkeerdrukKaart() {
 function tellingenTabel() {
   const max = Math.max(...P.tellingen.flatMap((t) => t.metingen.map((m) => m.druk ?? 0)));
   const rijen = P.tellingen
-    .map((t) => {
+    .map((t, ti) => {
       const ms = t.metingen
         .map((m) => {
           const nacht = t.maatgevendMetingen.includes(m.id);
@@ -272,7 +282,7 @@ function tellingenTabel() {
             <span><span class="staaf" style="width:${w.toFixed(0)}px;${nacht ? "" : "opacity:.45"}"></span></span><span style="text-align:right">${m.druk == null ? "–" : fmt(m.druk, 1) + "%"}</span></div>`;
         })
         .join("");
-      return `<tr><td>${t.naam}<div class="toel">${t.bureau}, ${t.code}</div></td><td>${t.gebieden.map((c) => GEBIED[c]).join(", ")}</td><td class="getal">${fmt(t.subbuurtdelen)}</td><td>${ms}</td></tr>`;
+      return `<tr data-koppel="${sleutel("telling", ti)}"><td>${t.naam}<div class="toel">${t.bureau}, ${t.code}</div></td><td>${t.gebieden.map((c) => GEBIED[c]).join(", ")}</td><td class="getal">${fmt(t.subbuurtdelen)}</td><td>${ms}</td></tr>`;
     })
     .join("");
   return `<div class="scroll"><table class="data" style="min-width:680px"><thead><tr><th>Telling</th><th>Gebied</th><th class="getal">Subbuurtdelen</th><th>Druk per meting, over de getelde subbuurtdelen in de analyse</th></tr></thead><tbody>${rijen}</tbody></table></div>`;
@@ -281,7 +291,7 @@ function tellingenTabel() {
 function subbuurtDrukTabel(rijen) {
   return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>Subbuurt</th><th>Buurt</th><th>Gebied</th><th class="getal">Plekken</th><th>Druk</th><th class="getal">Geteld</th></tr></thead><tbody>
     ${rijen
-      .map((s) => `<tr><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.capaciteit)}</td>
+      .map((s) => `<tr data-koppel="${sleutel("subbuurt", s.code)}"><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.capaciteit)}</td>
         <td><span class="staaf" style="width:${Math.min(s.druk, 140).toFixed(0)}px"></span>${fmt(s.druk, 1)}%${RAYON.has(s.gebied) ? "" : ` <span class="toel">${MOMENT[(P.subbuurtdelen.find((d) => d.gebied === s.gebied && d.moment) || {}).moment] || ""}</span>`}</td>
         <td class="getal">${s.geteld} van ${s.delen} ${s.delen === 1 ? "deel" : "delen"}${s.volledig ? "" : " <span class=\"toel\">deels</span>"}</td></tr>`)
       .join("")}</tbody></table></div>`;
@@ -304,17 +314,17 @@ function parkeerdrukTelling() {
       if (!p.geteld.length) return ["–", `geen werkdagnachttelling in ${g.naam}`, `0 van ${p.totaal} subbuurten geteld`];
       return [`${p.boven.length} van ${p.geteld.length}`, `getelde subbuurten in ${g.naam} boven 90% op de ${extra ? MOMENT[momentVan(g.code)] : "werkdagnacht"}`, `${p.geteld.length} van ${p.totaal} geteld · ${p.tussen.length} tussen 85% en 90%${extra ? ` · ${EXTRA.find((x) => x.code === g.code).toelichting}` : ""}`];
     }))}
-    <h4 style="margin-top:18px">Gemeten parkeerdruk per subbuurtdeel</h4>
-    <p style="font-size:13.5px">De werkdagnacht is maatgevend: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen die dat moment meten, is het ook het drukste moment (tabel hieronder). ${anders.map((t) => { const m = t.metingen.find((x) => t.maatgevendMetingen.includes(x.id)); return `${t.naam} is een bedrijventerrein zonder werkdagnacht; daar telt de ${m.dag.trim().toLowerCase()}middag (${m.tijd}), als de druk er het hoogst is.`; }).join(" ")} ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen van beide; die vlakken zijn gearceerd en tellen niet mee.</p>
+    <h4 style="margin-top:18px">Parkeerdruk op de kaart</h4>
+    <p style="font-size:13.5px">Het moment dat telt is de werkdagnacht: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen is dat ook het drukste moment. ${anders.map((t) => { const m = t.metingen.find((x) => t.maatgevendMetingen.includes(x.id)); return `${t.naam} is een bedrijventerrein zonder werkdagnacht; daar telt de ${m.dag.trim().toLowerCase()}middag (${m.tijd}), als het er het drukst is.`; }).join(" ")} ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen van beide; die vlakken zijn gearceerd en tellen niet mee. Rood gearceerd: een subbuurt boven 90%.</p>
     ${parkeerdrukKaart()}
-    <h4 style="margin-top:22px">Welk moment is maatgevend?</h4>
-    <p style="font-size:13.5px">Per telling de druk op elk meetmoment. Vet is het maatgevende moment.</p>
+    <h4 style="margin-top:22px">Druk per meetmoment</h4>
+    <p style="font-size:13.5px">Per telling de druk op elk meetmoment. Vet is het moment dat telt.</p>
     ${tellingenTabel()}
     <h4 style="margin-top:22px">${hoog.length} getelde subbuurten boven 85%</h4>
-    <p style="font-size:13.5px">Subbuurt = som van zijn getelde delen. ‘Deels’: niet elk subbuurtdeel met parkeerplaatsen is geteld, dus het cijfer geldt voor een deel van de subbuurt. Een subbuurt met weinig plekken springt snel boven 100%.</p>
+    <p style="font-size:13.5px">Een subbuurt is de som van zijn getelde delen. ‘Deels’: niet alle delen met parkeerplekken zijn geteld. Met weinig plekken komt een subbuurt snel boven 100%.</p>
     ${subbuurtDrukTabel(hoog)}
     <details><summary>Alle ${alle.length} getelde subbuurten</summary>${subbuurtDrukTabel(alle)}</details>
-    <div class="foot">${P.bron}. Rekenregel: ${P.regel}. Maatgevend moment: de ${P.maatgevend}. Alleen subbuurten met woonadressen tellen mee in de getallen hierboven; de kaart toont alle subbuurtdelen. Bouwen met <code>scripts/bouw_parkeerdruk.py</code>.</div>`;
+    <div class="foot">${P.bron}. Rekenregel: ${P.regel}. Maatgevend moment: de ${P.maatgevend}. Alleen subbuurten met woonadressen tellen mee in de getallen hierboven; de kaart toont alle subbuurtdelen.</div>`;
 }
 
 function sectorKaart() {
@@ -332,7 +342,7 @@ function sectorKaart() {
   const vlakken = eigen
     .map((s) => {
       const v = rij[s.id] && rij[s.id].bezetting;
-      return `<path d="${pad(s.geometrie)}" fill="${v == null ? "url(#sk-arcering)" : drukKleur(v)}" style="stroke:var(--asfalt);stroke-width:1"><title>${titel(s)}</title></path>`;
+      return `<path d="${pad(s.geometrie)}" data-koppel="${sleutel("sector", s.id)}" fill="${v == null ? "url(#sk-arcering)" : drukKleur(v)}" style="stroke:var(--asfalt);stroke-width:1"><title>${titel(s)}</title></path>`;
     })
     .join("");
   const lijnen = koepels
@@ -346,11 +356,11 @@ function sectorKaart() {
     ? ` ${ongeteld.map((r, i) => `${i ? "sector" : "Sector"} ${r.id} (${r.gebieden.map((c) => GEBIED[c]).join(", ")}, ${fmt(r.bezetting, 1)}%)`).join(" en ")} ${ongeteld.length === 1 ? "zit" : "zitten"} boven 90%, maar ${ongeteld.length === 1 ? "is" : "zijn"} niet geteld: daar voegt een telling het meest toe.`
     : "";
   const nietOpKaart = [...ps.rijen.map((r) => r.id), ...ps.zonderCijfers].filter((id) => !opKaart.has(id));
-  return `<h4 style="margin-top:22px">De parkeersectoren op de kaart</h4>
-    <p style="font-size:13.5px">Wat er al lag, nu met de sectorgrenzen: vergunningen ÷ capaciteit per sector, in dezelfde stappen als de telling. Dat is een papieren bezetting, geen telling.${advies}</p>
+  return `<h4 style="margin-top:22px">Vergunningen per sector op de kaart</h4>
+    <p style="font-size:13.5px">Vergunningen gedeeld door plekken per sector, in dezelfde kleuren als de telling. Een bezetting op papier, geen telling.${advies}</p>
     <div class="legenda-rij"><b>Vergunningen ÷ capaciteit</b>${drukLegenda(`<span><i style="background:${ARCERING}"></i>geen cijfers</span>${koepels.length ? `<span><i style="border:1.5px dashed var(--asfalt);background:transparent"></i>sector ${koepels.map((s) => s.id).join(" en ")} (omvat de andere, geen cijfers)</span>` : ""}`)}</div>
     <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de parkeersectoren in het rayon, gekleurd naar vergunningen gedeeld door capaciteit">${arceerPatroon("sk-arcering")}${rayonKnip("sk-rayon", pad)}${ondergrond}${sluier(P.subbuurtdelen, pad, W, hoogte)}${sectoren}${labels}${gebiedLabels(P.subbuurtdelen, xy)}${bronvermelding(W, hoogte)}</svg>
-    <div class="foot">Sectorgrenzen: ParkeerSectoren (shapefile, handmatig aangeleverd). Op de kaart staat een sector als het middelpunt van minstens één subbuurtdeel van het rayon erin ligt, afgeknipt op de rayongrens. ${nietOpKaart.length ? `Wel in de datalade, niet op de kaart: ${nietOpKaart.join(", ")} (geen vlak in de shapefile, of geen subbuurtdeel van het rayon erin).` : ""} Cijfers: ${ps.bron}; bron: ${bronDatalade()}.</div>`;
+    <div class="foot">Sectorgrenzen van de gemeente, afgeknipt op de rayongrens. ${nietOpKaart.length ? `Niet op de kaart: sector ${nietOpKaart.join(", ")} (geen grens bekend, of buiten het rayon).` : ""} Cijfers: ${ps.bron}; ${bronDatalade()}.</div>`;
 }
 
 function wachtlijstTabel() {
@@ -360,10 +370,10 @@ function wachtlijstTabel() {
       <th>Sector</th><th>Gebied</th><th class="getal">Plafond</th><th class="getal">Vergunningen bewoners</th>
       <th class="getal">Wachtlijst bewoners</th><th class="getal">Wachtlijst bedrijven</th></tr></thead><tbody>
       ${rijen
-        .map((r) => `<tr><td>${r.id}</td><td>${r.gebieden.map((c) => GEBIED[c]).join(", ")}</td><td class="getal">${fmt(r.plafond)}</td>
+        .map((r) => `<tr data-koppel="${sleutel("sector", r.id)}"><td>${r.id}</td><td>${r.gebieden.map((c) => GEBIED[c]).join(", ")}</td><td class="getal">${fmt(r.plafond)}</td>
           <td class="getal">${fmt(r.vergunningenBewoners)}</td><td class="getal">${fmt(r.wachtlijstBewoners)}</td><td class="getal">${fmt(r.wachtlijstBedrijven)}</td></tr>`)
         .join("")}</tbody></table></div>
-    <div class="foot">Aantal wachtenden op de peildatum, geen wachttijd. ${ps.bron}, gebouwd ${ps.gebouwd}. Bron: ${bronDatalade()}.</div>`;
+    <div class="foot">Aantal wachtenden op de peildatum, geen wachttijd. ${ps.bron}; ${bronDatalade()}.</div>`;
 }
 
 /* ---------- OV ---------- */
@@ -401,7 +411,7 @@ function buurtKaart(id, titel, kl, waarde, hover, extra = () => "") {
   const { xy, hoogte, ondergrond } = projectie(bs, W);
   const pad = padVan(xy);
   const paden = bs
-    .map((b) => `<path d="${pad(b.geometrie)}" data-buurt="${b.naam}" fill="${kl.kleur(waarde(b))}"><title>${hover(b, waarde(b))}</title></path>`)
+    .map((b) => `<path d="${pad(b.geometrie)}" data-buurt="${attr(b.naam)}" data-koppel="${sleutel("buurt", b.naam)}" fill="${kl.kleur(waarde(b))}" data-tip="${attr(hover(b, waarde(b)))}"></path>`)
     .join("");
   return `<div class="legenda-rij"><b>${titel}</b>${kl.legenda}</div>
     <svg id="${id}" class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart per buurt: ${titel}">${ondergrond}${sluier(bs, pad, W, hoogte)}${paden}${extra(xy)}${gebiedLabels(bs, xy)}${bronvermelding(W, hoogte)}</svg>`;
@@ -411,7 +421,7 @@ function kleurKaart(id, kl, waarde, hover) {
   document.querySelectorAll(`#${id} path[data-buurt]`).forEach((p) => {
     const b = per[p.dataset.buurt], v = waarde(b);
     p.setAttribute("fill", kl.kleur(v));
-    p.querySelector("title").textContent = hover(b, v);
+    p.dataset.tip = hover(b, v);
   });
 }
 // Buurttabel met een vaste kop en een tbody die een schuifje kan herschrijven; zo blijft de
@@ -421,7 +431,7 @@ const buurtTabelKop = (id, kop) =>
 function buurtRijen(id, waarde) {
   const rijen = alleBuurten().map((b) => ({ ...b, v: waarde(b) })).sort((a, b) => (a.v ?? 999) - (b.v ?? 999));
   document.getElementById(id).innerHTML = rijen
-    .map((b) => `<tr><td>${b.naam}</td><td>${GEBIED[b.gebied]}</td><td class="getal">${fmt(b.woonadressen)}</td><td class="getal">${fmt(b.inwoners)}</td><td>${balk(b.v)}</td></tr>`)
+    .map((b) => `<tr data-koppel="${sleutel("buurt", b.naam)}"><td>${b.naam}</td><td>${GEBIED[b.gebied]}</td><td class="getal">${fmt(b.woonadressen)}</td><td class="getal">${fmt(b.inwoners)}</td><td>${balk(b.v)}</td></tr>`)
     .join("");
 }
 const zetWaarde = (id, tekst) => {
@@ -438,7 +448,7 @@ function haltePunten(xy) {
   return `<g id="bed-haltes">${alleHaltes()
     .map((h, i) => {
       const [x, y] = xy([h.lon, h.lat]);
-      return `<circle data-i="${i}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6" style="stroke:var(--asfalt);stroke-width:1"><title></title></circle>`;
+      return `<circle data-i="${i}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6" style="stroke:var(--asfalt);stroke-width:1" data-tip=""></circle>`;
     })
     .join("")}</g>`;
 }
@@ -453,20 +463,20 @@ function bediening() {
         <input type="range" id="bed-per-uur" min="${D.ov.bediening.stap}" max="${D.ov.bediening.max}" step="${D.ov.bediening.stap}" value="${S_OV.perUur}" list="bed-ijk"></label>
       <datalist id="bed-ijk"><option value="2"></option><option value="4"></option><option value="6"></option></datalist>
       <button type="button" class="terug" id="bed-terug">Standaardnorm</button>
-      <div class="ijk">Standaard: avond, 4 per uur (elk kwartier), uit de blinde-vlekdefinitie in de notitie Parkeren en OV. 6 per uur noemt de verkenner de gangbare grens voor hoogfrequent OV. Geen van beide is een vastgestelde norm.</div>
+      <div class="ijk">Standaard: elk kwartier in de avond. Zes keer per uur (elke 10 minuten) geldt vaak als hoogfrequent OV. Geen van beide is een vastgestelde norm.</div>
     </div>
     <div id="bed-strip"></div>
     <h4 style="margin-top:18px">Hoe gevoelig is dat voor de grens?</h4>
-    <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen ze ver uit elkaar, dan bepaalt de keuze van de grens het beeld.</p>
+    <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen de uitkomsten ver uit elkaar, dan bepaalt de grens het beeld.</p>
     <div id="bed-gevoelig"></div>
     <h4 style="margin-top:22px">Per buurt</h4>
-    <p style="font-size:13.5px">De punten zijn de haltes in het gebied: gevuld als minstens één lijn er de norm haalt.</p>
+    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt.</p>
     ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, haltePunten)}
     ${buurtTabelKop("bed-buurten", "Goed bediend")}
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
-    <p style="font-size:13.5px">Alle vertrekken vanaf haltes binnen het gebied, alle richtingen en vervoerwijzen samen. De avond (vanaf 18 uur) is donker. Zelfde schaal voor de drie gebieden.</p>
+    <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.</p>
     ${uurprofiel()}
-    <div class="foot">Per adres de beste lijn op loopafstand: 500 m lopen naar een bus- of tramhalte (1 km bij ${D.ov.meerzijdig.drempels.knopen1km.join(", ")}) of 800 m naar een metro- of treinstation, over het looproutenetwerk. Vertrekken per uur per richting, gemiddeld over het dagdeel, op een representatieve werkdag. Woonadressen = adressen in panden met een woonfunctie. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}. Uurprofiel: ${ov(F.gebieden[0].code).gtfsBron}, peildatum ${ov(F.gebieden[0].code).gtfsPeildatum}; bron: ${bronDatalade()}.</div>`;
+    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()} Uurprofiel: dienstregeling van ${ov(F.gebieden[0].code).gtfsPeildatum}, ${bronDatalade()}.</div>`;
 }
 
 function tekenBediening() {
@@ -474,7 +484,7 @@ function tekenBediening() {
   zetWaarde("bed-per-uur-w", `${fmt(S_OV.perUur, S_OV.perUur % 1 ? 1 : 0)} (${OVN.interval(S_OV.perUur)})`);
   document.querySelectorAll("[data-dagdeel]").forEach((k) => k.setAttribute("aria-pressed", k.dataset.dagdeel === S_OV.dagdeel));
   document.getElementById("bed-strip").innerHTML = strip(
-    F.gebieden.map((g) => [`${fmt(OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur), 1)}%`, `van de woonadressen in ${g.naam} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${dd}`, "datalade"])
+    F.gebieden.map((g) => [`${fmt(OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur), 1)}%`, `van de woonadressen in ${g.naam} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${dd}`, ""])
   );
   const grenzen = [2, 4, 6];
   document.getElementById("bed-gevoelig").innerHTML = `<div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>${dd}</th>${grenzen
@@ -488,7 +498,7 @@ function tekenBediening() {
     const h = hs[c.dataset.i], v = h[S_OV.dagdeel];
     const haalt = v >= S_OV.perUur;
     c.style.fill = haalt ? "var(--asfalt)" : "var(--wit)";
-    c.querySelector("title").textContent = `${h.naam} (${h.modi.join(", ")}): beste lijn ${fmt(v, 1)} per uur per richting, ${dd}${haalt ? "" : " — haalt de norm niet"}`;
+    c.dataset.tip = `${h.naam} (${h.modi.join(", ")}): beste lijn ${fmt(v, 1)} per uur per richting, ${dd}${haalt ? "" : " — haalt de norm niet"}`;
   });
   buurtRijen("bed-buurten", bediendPct);
 }
@@ -550,20 +560,20 @@ function haltedekking() {
         <input type="range" id="dek-metro" min="200" max="${d.metroTreinMaxM}" step="${d.metroTreinStapM}" value="${S_OV.loopMetroTreinM}" list="dek-metro-ijk"></label>
       <datalist id="dek-metro-ijk"><option value="800"></option><option value="1000"></option><option value="1200"></option></datalist>
       <button type="button" class="terug" id="dek-terug">Standaardnorm</button>
-      <div class="ijk">Loopafstand over het looproutenetwerk. Ter vergelijking: de gangbare 400 m hemelsbreed naar een bushalte is ongeveer 500 m lopen; ouderen geven de voorkeur aan 200 tot 300 m; voor snel en frequent OV acht de MRDH 600 tot 800 m aanvaardbaar. Zie <code>docs/loopafstanden.md</code>.</div>
+      <div class="ijk">Loopafstand over de looproutes. Ter vergelijking: de gangbare 400 m hemelsbreed is ongeveer 500 m lopen; ouderen geven de voorkeur aan 200 tot 300 m; voor snel en frequent OV vindt de MRDH 600 tot 800 m aanvaardbaar. <a href="https://github.com/WKSu/prototype-opgaven/blob/main/docs/loopafstanden.md">Onderbouwing</a>.</div>
     </div>
     <div id="dek-strip"></div>
     <h4 style="margin-top:18px">Per buurt</h4>
     ${buurtKaart("dek-kaart", "Woonadressen binnen loopafstand", DEKKING_KL, gedektPct, gedektHover)}
     ${buurtTabelKop("dek-buurten", "Binnen loopafstand")}
-    <div class="foot">Over het looproutenetwerk (OSM), naar de dichtstbijzijnde halte van elke vervoerwijze, ongeacht de frequentie. Woonadressen = adressen in panden met een woonfunctie; een gemengd pand telt met al zijn adressen mee. Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+    <div class="foot">Naar de dichtstbijzijnde halte, ongeacht hoe vaak er iets rijdt. Woonadressen zijn adressen in panden met een woonfunctie. Buurten met weinig adressen geven grote sprongen. ${ovBron()}</div>`;
 }
 
 function tekenDekking() {
   zetWaarde("dek-bus-w", `${S_OV.loopBusTramM} m`);
   zetWaarde("dek-metro-w", `${S_OV.loopMetroTreinM} m`);
   document.getElementById("dek-strip").innerHTML = strip(
-    F.gebieden.map((g) => [`${fmt(OVN.gedekt(g.code, S_OV.loopBusTramM, S_OV.loopMetroTreinM), 1)}%`, `van de woonadressen in ${g.naam} binnen loopafstand van een halte`, "datalade"])
+    F.gebieden.map((g) => [`${fmt(OVN.gedekt(g.code, S_OV.loopBusTramM, S_OV.loopMetroTreinM), 1)}%`, `van de woonadressen in ${g.naam} binnen loopafstand van een halte`, ""])
   );
   kleurKaart("dek-kaart", DEKKING_KL, gedektPct, gedektHover);
   buurtRijen("dek-buurten", gedektPct);
@@ -594,7 +604,7 @@ NA_RENDER.push(function dekkingSchuifjes() {
 const mz = (code) => ov(code).meerzijdig;
 const MZ = () => D.ov.meerzijdig.drempels;
 const reikwijdte = () =>
-  `Binnen loopafstand: ${MZ().loopHalteM} m lopen naar een bus- of tramhalte (1 km bij ${MZ().knopen1km.join(", ")}) of ${MZ().loopMetroTreinM} m naar een metro- of treinstation, over het looproutenetwerk. Een lijn telt mee bij minstens ${MZ().bruikbaarDal} vertrekken per uur per richting in het dal (9–16 uur). Bus en tram rekenen met 500 m in plaats van de 400 m van de haltedekking: de bron heeft per halte alleen adreslijsten tot 500 m. Woonadressen = adressen in panden met een woonfunctie.`;
+  `Loopafstand: ${MZ().loopHalteM} m naar bus en tram, ${MZ().loopMetroTreinM} m naar metro en trein, over de looproutes. Een lijn telt mee als hij overdag minstens elk half uur rijdt.`;
 const balk = (v) => (v == null ? "–" : `<span class="staaf" style="width:${(v * 1.2).toFixed(0)}px"></span>${fmt(v, 1)}%`);
 
 // Verdeling van woonadressen over 0 tot 4 (soorten, windrichtingen), per gebied in kolommen.
@@ -611,7 +621,7 @@ function buurtTabel(veld, kop, hoogIsSlecht) {
     .sort((a, b) => (hoogIsSlecht ? b[veld] - a[veld] : a[veld] - b[veld]));
   return `<h4 style="margin-top:18px">Per buurt, ${hoogIsSlecht ? "hoogste" : "laagste"} eerst</h4>
     <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Buurt</th><th>Gebied</th><th class="getal">Woonadressen</th><th>${kop}</th></tr></thead><tbody>
-    ${rijen.map((b) => `<tr><td>${b.naam}</td><td>${b.gebied}</td><td class="getal">${fmt(b.woonadressen)}</td><td>${balk(b[veld])}</td></tr>`).join("")}
+    ${rijen.map((b) => `<tr data-koppel="${sleutel("buurt", b.naam)}"><td>${b.naam}</td><td>${b.gebied}</td><td class="getal">${fmt(b.woonadressen)}</td><td>${balk(b[veld])}</td></tr>`).join("")}
     </tbody></table></div>`;
 }
 
@@ -620,12 +630,12 @@ const mzBuurt = (b) => mz(b.gebied).perBuurt.find((x) => x.naam === b.naam);
 
 const SOORTEN = ["geen bruikbare lijn", "één soort", "twee soorten", "drie soorten", "vier soorten"];
 function vervoersmix() {
-  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).vervoersmix.aandeel, 1)}%`, `van de woonadressen in ${g.naam} heeft twee of meer OV-soorten op loopafstand`, "datalade"]))}
+  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).vervoersmix.aandeel, 1)}%`, `van de woonadressen in ${g.naam} heeft twee of meer OV-soorten op loopafstand`, ""]))}
     <h4 style="margin-top:18px">Hoeveel soorten OV op loopafstand?</h4>
     ${verdelingTabel("Soorten OV", SOORTEN, (c) => mz(c).vervoersmix.verdeling)}
     ${buurtKaart("mix-kaart", "Twee of meer OV-soorten op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.mix ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("mix", "Twee of meer soorten", false)}
-    <div class="foot">${reikwijdte()} Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+    <div class="foot">${reikwijdte()} Buurten met weinig adressen geven grote sprongen. ${ovBron()}</div>`;
 }
 
 const RICHTINGEN = ["geen bruikbare lijn", "één windrichting", "twee windrichtingen", "drie windrichtingen", "alle vier"];
@@ -641,16 +651,16 @@ function richtingCheck() {
     })
     .join("");
   const zonder = D.ov.meerzijdig.zonderGeometrie;
-  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).richting.tangentieel, 1)}%`, `van de woonadressen in ${g.naam} heeft een lijn op loopafstand die niet door het centrum rijdt`, "datalade"]))}
+  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).richting.tangentieel, 1)}%`, `van de woonadressen in ${g.naam} heeft een lijn op loopafstand die niet door het centrum rijdt`, ""]))}
     <h4 style="margin-top:18px">Welke lijnen rijden om het centrum heen?</h4>
-    <p style="font-size:13.5px">Lijnen met een bruikbare halte op loopafstand van minstens 1% van de woonadressen. ‘Bereikt’ is het aandeel woonadressen in het gebied dat de lijn op loopafstand heeft.</p>
+    <p style="font-size:13.5px">Per gebied de lijnen die minstens 1% van de woningen op loopafstand hebben. ‘Bereikt’: het aandeel woningen met die lijn op loopafstand.</p>
     ${lijsten}
     <h4 style="margin-top:22px">In hoeveel windrichtingen vertrek je vanaf je voordeur?</h4>
-    <p style="font-size:13.5px">De richting-spreiding uit het knooppuntmodel, gemeten per adres: naar welke windrichtingen (noord, oost, zuid, west) de bruikbare lijnen op loopafstand vertrekken. Lees dit samen met de tabel hierboven. Veel windrichtingen maar weinig tangentiële lijnen betekent: de lijnen vertrekken alle kanten op, maar rijden uiteindelijk toch via het centrum.</p>
+    <p style="font-size:13.5px">Naar welke windrichtingen (noord, oost, zuid, west) de lijnen bij je in de buurt vertrekken. Lees dit samen met de tabel hierboven: veel windrichtingen maar weinig lijnen om het centrum heen betekent dat de lijnen alle kanten op vertrekken, maar toch via het centrum rijden.</p>
     ${verdelingTabel("Windrichtingen", RICHTINGEN, (c) => mz(c).richting.windrichtingen)}
     ${buurtKaart("tang-kaart", "Tangentiële lijn op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.tangentieel ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("tangentieel", "Tangentiële lijn op loopafstand", false)}
-    <div class="foot">Tangentieel: de lijn komt niet in gebied Rotterdam Centrum (CBS-wijk, grens uit de datalade). Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is, gezien vanaf de halte; een eindpunt telt niet.${zonder.length ? ` Zonder geometrie, dus zonder richting: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+    <div class="foot">Om het centrum heen (tangentieel): de lijn komt niet in gebied Rotterdam Centrum. Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is.${zonder.length ? ` Zonder route bekend: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${ovBron()}</div>`;
 }
 
 function storingstest() {
@@ -659,14 +669,14 @@ function storingstest() {
     .join("");
   return `${strip(F.gebieden.map((g) => {
       const c = mz(g.code).storing.corridors[0];
-      return [`${fmt(c.verlies, 1)}%`, `van de woonadressen in ${g.naam} verliest bruikbaar OV als ${c.corridor} uitvalt`, "datalade"];
+      return [`${fmt(c.verlies, 1)}%`, `van de woonadressen in ${g.naam} verliest bruikbaar OV als ${c.corridor} uitvalt`, ""];
     }))}
     <h4 style="margin-top:18px">De drie zwaarste storingen per gebied</h4>
-    <p style="font-size:13.5px">Per corridor: welk deel van de woonadressen geen bruikbare lijn meer op loopafstand heeft als die corridor uitvalt. Nu al zonder bruikbare lijn: ${F.gebieden.map((g) => `${g.naam} ${fmt(mz(g.code).zonderBruikbaar, 1)}%`).join(", ")}. Die tellen hier niet mee.</p>
-    <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Gebied</th><th>Corridor valt uit</th><th>Verliest bruikbaar OV</th></tr></thead><tbody>${rijen}</tbody></table></div>
+    <p style="font-size:13.5px">Per verbinding: het aandeel woningen dat geen bruikbare lijn op loopafstand overhoudt als die uitvalt. Woningen die nu al geen bruikbare lijn hebben, tellen niet mee: ${F.gebieden.map((g) => `${g.naam} ${fmt(mz(g.code).zonderBruikbaar, 1)}%`).join(", ")}.</p>
+    <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Gebied</th><th>Verbinding valt uit</th><th>Woningen zonder OV</th></tr></thead><tbody>${rijen}</tbody></table></div>
     ${buurtKaart("verlies-kaart", "Verliest bruikbaar OV bij de zwaarste storing van het gebied", VERLIES_KL, (b) => mzBuurt(b)?.verlies ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
     ${buurtTabel("verlies", "Verliest OV bij de zwaarste storing van het gebied", true)}
-    <div class="foot">Corridor: een lijn met de lijnen van dezelfde vervoerwijze die minstens de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+    <div class="foot">Een verbinding is een lijn samen met de lijnen die de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. ${reikwijdte()} ${ovBron()}</div>`;
 }
 
 /* ---------- rapportcijfer ---------- */
@@ -691,7 +701,7 @@ function rapportcijfer() {
     <div class="legenda-rij">${legenda}</div>
     ${g.map((x) => rij(x.naam, x.verdeling, x.n, x.indicatief ? " · indicatief" : "")).join("")}
     <div style="display:grid;grid-template-columns:180px 1fr;gap:10px;align-items:center;margin:6px 0;color:var(--asfalt-zacht)"><span style="font-size:13.5px">Rotterdam<div class="toel">n = ${fmt(RC.rotterdam.n)}</div></span><span style="font-size:13.5px">${fmt(RC.rotterdam.cijfer, 1)} · ${RC.rotterdam.onvoldoende}% onvoldoende</span></div>
-    <div class="foot">${RC.bron}, ${RC.periode}. ${RC.regel[0].toUpperCase() + RC.regel.slice(1)}. Rayon, gewogen naar respondenten: ${fmt(RC.rayon.cijfer, 1)}, ${RC.rayon.onvoldoende}% onvoldoende, n = ${fmt(RC.rayon.n)}; ter informatie, het overzicht toont per gebied. Bouwen met <code>scripts/bouw_rapportcijfer.py</code>.</div>`;
+    <div class="foot">${RC.bron}, ${RC.periode}. ${RC.regel[0].toUpperCase() + RC.regel.slice(1)}. Rayon, gewogen naar respondenten: ${fmt(RC.rayon.cijfer, 1)}, ${RC.rayon.onvoldoende}% onvoldoende, n = ${fmt(RC.rayon.n)}.</div>`;
 }
 
 /* ---------- ruimtebeslag ---------- */
@@ -722,7 +732,7 @@ function ruimtebeslagKaart() {
     .map((d) => {
       const s = sb[d.subbuurt];
       const titel = s.aandeel == null ? `${d.buurt}, subbuurt ${s.code}: geen cijfer` : `${d.buurt}, subbuurt ${s.code}: ${fmt(s.aandeel, 1)}% (${fmt(s.plekken)} plekken, ${ha(s.parkeren)} ha parkeren op ${ha(s.openbaar)} ha openbare ruimte). Dit deel: ${d.bron === "telling" ? "capaciteit uit de telling" : "BGT-parkeervlakken"}`;
-      return `<path d="${pad(geo[d.code])}" fill="${s.aandeel == null ? "var(--beton-diep)" : rbKleur(s.aandeel)}"><title>${titel}</title></path>`;
+      return `<path d="${pad(geo[d.code])}" data-koppel="${sleutel("subbuurt", s.code)} ${sleutel("deel", d.code)}" fill="${s.aandeel == null ? "var(--beton-diep)" : rbKleur(s.aandeel)}"><title>${titel}</title></path>`;
     })
     .join("");
   // Gestippeld: dit deel komt uit de BGT, niet uit een telling.
@@ -745,7 +755,7 @@ function ruimtebeslag() {
   const grenzen = [null, ...RB.grootPark.gevoeligheid];
   const tabel = (rijen) => `<div class="scroll"><table class="data" style="min-width:640px"><thead><tr><th>Subbuurt</th><th>Buurt</th><th>Gebied</th><th class="getal">Plekken</th><th class="getal">Parkeren</th><th class="getal">Openbare ruimte</th><th>Ruimtebeslag</th><th>Bron</th></tr></thead><tbody>
     ${rijen
-      .map((s) => `<tr><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.plekken)}</td><td class="getal">${ha(s.parkeren)} ha</td><td class="getal">${ha(s.openbaar)} ha</td>
+      .map((s) => `<tr data-koppel="${sleutel("subbuurt", s.code)}"><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.plekken)}</td><td class="getal">${ha(s.parkeren)} ha</td><td class="getal">${ha(s.openbaar)} ha</td>
         <td><span class="staaf" style="width:${Math.min(4 * s.aandeel, 140).toFixed(0)}px"></span>${fmt(s.aandeel, 1)}%</td><td>${{ telling: "telling", bgt: "BGT", mix: "telling + BGT" }[s.bron]}</td></tr>`)
       .join("")}</tbody></table></div>`;
   return `${strip(F.gebieden.map((g) => {
@@ -753,10 +763,10 @@ function ruimtebeslag() {
       return p.aandeel == null ? ["–", `geen cijfer voor ${g.naam}`, ""] : [`${fmt(p.aandeel)}%`, `van de openbare ruimte in ${g.naam} is parkeervlak`, `${p.met.length} van ${p.sb.length} subbuurten · ${fmt(p.plekken)} plekken`];
     }))}
     <h4 style="margin-top:18px">Ruimtebeslag per subbuurt</h4>
-    <p style="font-size:13.5px">Waar geteld is, telt de capaciteit uit de telling: ${fmt(RB.m2PerPlek, 1)} m² per plek. Elders het oppervlak van de BGT-parkeervlakken (gestippeld). Het oppervlak per plek is geijkt op ${RB.ijking.delen} getelde subbuurtdelen: zoveel BGT-parkeervlak ligt er gemiddeld per getelde plek (mediaan ${fmt(RB.ijking.mediaan, 1)}, middelste helft ${fmt(RB.ijking.p25, 1)}–${fmt(RB.ijking.p75, 1)} m²). Zo staan beide bronnen op dezelfde schaal.</p>
+    <p style="font-size:13.5px">Waar geteld is, komt het aantal plekken uit de telling (${fmt(RB.m2PerPlek, 1)} m² per plek). Elders telt het oppervlak van de parkeervlakken op de kaart (BGT, gestippeld). De ${fmt(RB.m2PerPlek, 1)} m² is zo gekozen dat beide op dezelfde schaal staan: zoveel parkeervlak ligt er gemiddeld per getelde plek.</p>
     ${ruimtebeslagKaart()}
     <h4 style="margin-top:22px">Hoeveel maakt ‘groot park’ uit?</h4>
-    <p style="font-size:13.5px">Grote parken vallen uit de noemer. Nu: aaneengesloten groen vanaf ${fmt(RB.grootPark.ha)} ha, met paden tot ${RB.grootPark.sluitM} m breed als deel van het park. Per grens het ruimtebeslag per gebied:</p>
+    <p style="font-size:13.5px">Grote parken tellen niet mee als openbare ruimte. Nu geldt aaneengesloten groen vanaf ${fmt(RB.grootPark.ha)} ha als groot park. Zo verandert de uitkomst bij een andere grens:</p>
     <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Groot park vanaf</th>${F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("")}</tr></thead><tbody>
       ${grenzen
         .map((gr) => `<tr${gr === RB.grootPark.ha ? ' style="font-weight:700"' : ""}><td>${gr == null ? "geen park uitgesloten" : `${fmt(gr, gr < 1 ? 1 : 0)} ha`}</td>${F.gebieden.map((g) => `<td class="getal">${fmt(rbGebied(g.code, gr).aandeel, 1)}%</td>`).join("")}</tr>`)
@@ -764,7 +774,7 @@ function ruimtebeslag() {
     <h4 style="margin-top:22px">De 10 subbuurten met het hoogste ruimtebeslag</h4>
     ${tabel(alle.slice(0, 10))}
     <details><summary>Alle ${alle.length} subbuurten met een cijfer</summary>${tabel(alle)}</details>
-    <div class="foot">Rekenregel: ${RB.regel}. Teller: ${RB.teller}. Noemer: ${RB.noemer}. Alleen subbuurten met woonadressen tellen mee in de gebiedscijfers. Bron: ${RB.bron}; BGT © Kadaster, CC-BY 4.0. Ophalen met <code>scripts/haal_bgt.py</code>, bouwen met <code>scripts/bouw_ruimtebeslag.py</code>.</div>`;
+    <div class="foot">Rekenregel: ${RB.regel}. Teller: ${RB.teller}. Noemer: ${RB.noemer}. Alleen subbuurten met woonadressen tellen mee in de gebiedscijfers. Bron: ${RB.bron}; BGT © Kadaster, CC-BY 4.0.</div>`;
 }
 
 /* ---------- fietsparkeren ---------- */
@@ -792,13 +802,14 @@ function fietsKaart() {
   const per = Object.fromEntries(FP.subbuurten.map((s) => [s.code, s]));
   const vulling = (s) => (!s ? "var(--beton-diep)" : s.druk == null ? (s.fietsen ? "url(#fp-arcering)" : "var(--beton)") : fpKleur(s.druk));
   const titel = (k, s) => {
-    const kop = `Subbuurt ${k.code} (${GEBIED[k.gebied]})`;
+    const kop = `${buurtVan(k.code) ? buurtVan(k.code) + ", s" : "S"}ubbuurt ${k.code} (${GEBIED[k.gebied]})`;
     if (!s) return `${kop}: niet geteld`;
     const t = FP.tellingen[s.telling];
     if (s.druk == null) return `${kop}: geen voorzieningen, ${fmt(s.fietsen)} fietsen op straat. ${t.naam} ${t.jaar}, ${MOMENT_FIETS[t.maatgevend]}`;
     return `${kop}: ${fmt(s.druk)}% · ${fmt(s.fietsen)} fietsen op ${fmt(s.capaciteit)} plekken, ${fmt(s.wild)} buiten een voorziening. ${t.naam} ${t.jaar}, ${MOMENT_FIETS[t.maatgevend]}`;
   };
-  const paden = kaart.map((k) => `<path d="${pad(k.geometrie)}" fill="${vulling(per[k.code])}"><title>${titel(k, per[k.code])}</title></path>`).join("");
+  const koppelSb = (k) => [sleutel("subbuurt", k.code), per[k.code] ? sleutel("fietstelling", per[k.code].telling) : ""].join(" ").trim();
+  const paden = kaart.map((k) => `<path d="${pad(k.geometrie)}" data-koppel="${koppelSb(k)}" fill="${vulling(per[k.code])}"><title>${titel(k, per[k.code])}</title></path>`).join("");
   // Voorzieningen als punt, oppervlak naar capaciteit: laat zien waar de plekken staan.
   const punten = FP.voorzieningen
     .map((v) => {
@@ -818,7 +829,7 @@ function fietsKaart() {
 function fietsTellingen() {
   const max = Math.max(...FP.tellingen.flatMap((t) => t.metingen.map((m) => m.druk ?? 0)));
   const rijen = FP.tellingen
-    .map((t) => {
+    .map((t, ti) => {
       const cap = t.metingen[0].capaciteit;
       const ms = t.metingen
         .map((m) => {
@@ -827,7 +838,7 @@ function fietsTellingen() {
             <span>${MOMENT_FIETS[m.moment]}</span><span><span class="staaf" style="width:${((110 * m.druk) / max).toFixed(0)}px;${vet ? "" : "opacity:.45"}"></span></span><span style="text-align:right">${fmt(m.druk)}%</span></div>`;
         })
         .join("");
-      return `<tr><td>${t.naam}<div class="toel">Ecorys ${t.jaar}, ${t.code}</div></td><td>${GEBIED[t.gebied]}</td><td class="getal">${fmt(t.subbuurten)}</td><td class="getal">${fmt(cap)}</td><td>${ms}</td></tr>`;
+      return `<tr data-koppel="${sleutel("fietstelling", ti)}"><td>${t.naam}<div class="toel">Ecorys ${t.jaar}, ${t.code}</div></td><td>${GEBIED[t.gebied]}</td><td class="getal">${fmt(t.subbuurten)}</td><td class="getal">${fmt(cap)}</td><td>${ms}</td></tr>`;
     })
     .join("");
   return `<div class="scroll"><table class="data" style="min-width:640px"><thead><tr><th>Telling</th><th>Gebied</th><th class="getal">Subbuurten</th><th class="getal">Capaciteit</th><th>Druk per meetmoment</th></tr></thead><tbody>${rijen}</tbody></table></div>`;
@@ -837,7 +848,7 @@ function fietsSubbuurten(rijen) {
   const buurt = Object.fromEntries((P ? P.subbuurtdelen : []).map((d) => [d.subbuurt, d.buurt]));
   return `<div class="scroll"><table class="data" style="min-width:640px"><thead><tr><th>Subbuurt</th><th>Telling</th><th class="getal">Capaciteit</th><th class="getal">Fietsen</th><th class="getal">Waarvan buiten voorziening</th><th>Druk</th><th class="getal">Tekort</th></tr></thead><tbody>
     ${rijen
-      .map((s) => `<tr><td>${s.code}<div class="toel">${buurt[s.code] || GEBIED[s.gebied]}</div></td><td>${FP.tellingen[s.telling].naam}</td><td class="getal">${fmt(s.capaciteit)}</td><td class="getal">${fmt(s.fietsen)}</td><td class="getal">${fmt(s.wild)}</td>
+      .map((s) => `<tr data-koppel="${sleutel("subbuurt", s.code)}"><td>${s.code}<div class="toel">${buurt[s.code] || GEBIED[s.gebied]}</div></td><td>${FP.tellingen[s.telling].naam}</td><td class="getal">${fmt(s.capaciteit)}</td><td class="getal">${fmt(s.fietsen)}</td><td class="getal">${fmt(s.wild)}</td>
         <td>${s.druk == null ? `<span class="toel">geen voorziening</span>` : `<span class="staaf" style="width:${Math.min(s.druk / 3, 140).toFixed(0)}px"></span>${fmt(s.druk)}%`}</td><td class="getal">${fmt(s.tekort)}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
@@ -863,7 +874,7 @@ function fietsparkeren() {
     <p style="font-size:13.5px">Tekort = fietsen min plekken op het drukste moment: zoveel plekken zijn er nodig om elke fiets een plek te geven. Samen ${fmt(hoog.reduce((a, s) => a + s.tekort, 0))} plekken.</p>
     ${fietsSubbuurten(hoog.slice(0, 15))}
     <details><summary>Alle ${alle.length} getelde subbuurten</summary>${fietsSubbuurten([...alle].sort((a, b) => a.code.localeCompare(b.code)))}</details>
-    <div class="foot">${FP.bron}. Rekenregel: ${FP.regel}. Maatgevend: ${FP.maatgevend}. Alleen subbuurten met woonadressen tellen mee in de gebiedscijfers. Bouwen met <code>scripts/bouw_fietsparkeren.py</code>.</div>`;
+    <div class="foot">${FP.bron}. Rekenregel: ${FP.regel}. Maatgevend: ${FP.maatgevend}. Alleen subbuurten met woonadressen tellen mee in de gebiedscijfers.</div>`;
 }
 
 /* ---------- woningbouw en P+R (context, geen indicator) ---------- */
@@ -1003,6 +1014,87 @@ const VISUEEL = {
   "ov-storing": storingstest,
 };
 
+/* ---------- kaart en tabel koppelen ---------- */
+
+// Kaartvlakken en tabelrijen dragen data-koppel: een of meer sleutels "soort:waarde", gescheiden
+// door spaties. De eerste sleutel van een vlak is zijn eigen naam (bijvoorbeeld de subbuurt);
+// de rest zijn groepen waar het bij hoort (telling, sector). Een rij licht elk vlak op met die
+// sleutel; een vlak licht de rijen met zijn eerste sleutel op. Klikken zet de keuze vast.
+const sleutel = (soort, waarde) => `${soort}:${String(waarde).replace(/\s+/g, "_")}`;
+const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+const sleutels = (el) => (el.dataset.koppel || "").split(" ").filter(Boolean);
+let vastgezet = [];
+
+function markeer(keys) {
+  document.querySelectorAll("tr[data-koppel]").forEach((r) => r.classList.toggle("uitgelicht", sleutels(r).some((k) => keys.includes(k))));
+  // Omlijning als bovenste laag: het vlak zelf verschuift niet, en arceringen blijven zichtbaar.
+  document.querySelectorAll("svg.kaart-svg").forEach((svg) => {
+    svg.querySelectorAll(".omlijning").forEach((o) => o.remove());
+    svg.querySelectorAll("[data-koppel]").forEach((v) => {
+      if (!sleutels(v).some((k) => keys.includes(k))) return;
+      const o = document.createElementNS("http://www.w3.org/2000/svg", v.tagName);
+      for (const a of ["d", "cx", "cy", "r"]) if (v.hasAttribute(a)) o.setAttribute(a, v.getAttribute(a));
+      o.setAttribute("class", "omlijning");
+      const knip = v.closest("[clip-path]");
+      (knip && knip !== svg ? knip : svg).appendChild(o);
+    });
+  });
+}
+
+let label;
+function toonLabel(el, x, y) {
+  if (!label) {
+    label = document.createElement("div");
+    label.className = "kaartlabel";
+    document.body.appendChild(label);
+  }
+  // De naam staat voor de eerste dubbele punt; die wordt vet.
+  const tip = el.dataset.tip, i = tip.indexOf(":");
+  label.innerHTML = i > 0 ? `<b>${attr(tip.slice(0, i))}</b>${attr(tip.slice(i + 1).trim())}` : `<b>${attr(tip)}</b>`;
+  label.hidden = false;
+  const b = label.getBoundingClientRect();
+  label.style.left = `${Math.min(x + 14, innerWidth - b.width - 8)}px`;
+  label.style.top = `${y + 18 + b.height > innerHeight ? y - b.height - 10 : y + 18}px`;
+}
+const verbergLabel = () => label && (label.hidden = true);
+
+function koppel() {
+  // Eén label: de eigen titel van de browser verdwijnt, anders verschijnen er twee.
+  document.querySelectorAll("svg.kaart-svg [data-koppel] > title, svg.kaart-svg circle > title").forEach((tt) => {
+    tt.parentElement.dataset.tip = tt.textContent;
+    tt.remove();
+  });
+  document.addEventListener("pointerover", (e) => {
+    const r = e.target.closest("tr[data-koppel]");
+    const v = e.target.closest("svg.kaart-svg [data-koppel]");
+    if (r) markeer(sleutels(r));
+    else if (v) markeer(sleutels(v).slice(0, 1));
+  });
+  document.addEventListener("pointerout", (e) => {
+    if (e.target.closest("tr[data-koppel], svg.kaart-svg [data-koppel]")) markeer(vastgezet);
+    if (e.target.closest("svg.kaart-svg [data-tip]")) verbergLabel();
+  });
+  document.addEventListener("pointermove", (e) => {
+    const v = e.target.closest("svg.kaart-svg [data-tip]");
+    if (v) toonLabel(v, e.clientX, e.clientY);
+  });
+  document.addEventListener("click", (e) => {
+    const r = e.target.closest("tr[data-koppel]");
+    const v = e.target.closest("svg.kaart-svg [data-koppel]");
+    if (!r && !v) return;
+    const keys = r ? sleutels(r) : sleutels(v).slice(0, 1);
+    vastgezet = vastgezet.join() === keys.join() ? [] : keys;
+    markeer(vastgezet);
+    // Op een telefoon is er geen hover: toon het label bij de tik.
+    if (v && v.dataset.tip) toonLabel(v, e.clientX, e.clientY);
+    // Vanuit een rij: haal de kaart van hetzelfde blok in beeld als hij buiten beeld is.
+    if (r && vastgezet.length) {
+      const kaart = [...(r.closest("section") || document).querySelectorAll("svg.kaart-svg")].find((s) => s.querySelector(".omlijning"));
+      if (kaart) kaart.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+}
+
 /* ---------- pagina ---------- */
 
 // Boven de MAX_RIJEN rijen komt een tabel in een <details>, zodat de pagina leesbaar blijft.
@@ -1022,48 +1114,55 @@ function klapIn(root) {
   });
 }
 
+// Per indicator: wat hij zegt, hoe hij gemeten is, waar je op let, en wat je nog niet ziet.
+// Daarna de kaarten en tabellen.
 function blok(ind) {
   const dl = ind.datalade;
   const vis = VISUEEL[ind.sleutel];
+  const uitleg = [
+    ["Hoe gemeten", ind.meting],
+    ["Let op", ind.letop],
+    ["Nog niet te zien", dl.ontbreekt],
+  ].filter(([, tekst]) => tekst);
   return `<section id="i-${ind.sleutel}" data-onderwerp="onderzoek-${ind.sleutel}" data-label="${ind.naam}">
     ${ind.groep ? `<div class="eyebrow">${ind.groep}</div>` : ""}
     <h2>${ind.naam} ${statusChip(dl.status)}</h2>
-    <p class="def">${ind.definitie}</p>
-    <div class="box"><h4>Wat de datalade nu zegt</h4><p style="font-size:14.5px">${dl.tekst}</p>
-      ${dl.kerncijfers ? strip(dl.kerncijfers) : ""}
-      ${vis ? veilig(ind.sleutel, vis) : ""}</div>
-    ${dl.nodig ? `<div class="nodig"><b>Nodig om dit te beantwoorden</b>${dl.nodig}</div>` : ""}
-    ${ind.letop ? `<p class="foot">Let op: ${ind.letop}</p>` : ""}
+    <p class="kernvraag">${ind.vraag}</p>
+    <dl class="uitleg">${uitleg.map(([kop, tekst]) => `<div${kop === "Nog niet te zien" ? ' class="mist"' : ""}><dt>${kop}</dt><dd>${tekst}</dd></div>`).join("")}</dl>
+    ${vis ? `<div class="box">${veilig(ind.sleutel, vis)}</div>` : ""}
   </section>`;
 }
 
+const INTRO = {
+  parkeren: "Hoe vol staan straten en stallingen, hoe tevreden zijn bewoners, en hoeveel ruimte kost parkeren? Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. De cijfers staan hier zonder normen; het oordeel staat in het overzicht.",
+  ov: "Hoe goed worden de woningen bediend door bus, tram, metro en trein? Het gaat om het aanbod volgens de dienstregeling, niet om gebruik of stiptheid. Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. Normen voor frequentie en loopafstand zijn in te stellen.",
+};
+
 function pagina() {
   const inds = THEMA.indicatoren;
-  const tel = (st) => inds.filter((i) => i.datalade.status === st).length;
-  const open = inds.filter((i) => i.datalade.nodig);
+  const open = inds.filter((i) => i.datalade.ontbreekt);
   document.getElementById("inhoud").innerHTML = `
     <section id="s0" data-onderwerp="${THEMA.sleutel}-overzicht" data-label="Overzicht" data-review="tekst" data-review-vraag="Wat mis je in deze viewer?" style="border-bottom:4px solid var(--asfalt)">
-      <div class="eyebrow">Onderzoek · Rayon ${F.rayon.naam}</div>
+      <div class="eyebrow">Rayon ${F.rayon.naam}</div>
       <h1>${THEMA.naam}</h1>
-      <p class="lead">Wat kan de gepubliceerde datalade al beantwoorden? Per indicator: wat er staat, wat ontbreekt en welke data nodig is. Echte cijfers, zonder normen of oordeel.</p>
-      ${strip([
-        [tel("ja"), "beantwoord", "van " + inds.length],
-        [tel("deels"), "deels te beantwoorden", "van " + inds.length],
-        [tel("nee"), "niet in de datalade", "van " + inds.length],
-      ])}
+      <p class="lead">${INTRO[THEMA.sleutel]}</p>
+      <ol class="inhoudsopgave">${inds
+        .map((i) => `<li><a href="#i-${i.sleutel}">${i.naam}</a> ${statusChip(i.datalade.status)}<span class="tocvraag">${i.vraag}</span></li>`)
+        .join("")}</ol>
     </section>
     ${inds.map(blok).join("")}
     ${THEMA.sleutel === "parkeren" && WB ? veilig("woningbouw", woningbouwEnPR) : ""}
-    <section id="nodig" data-onderwerp="${THEMA.sleutel}-nodig" data-label="Wat er nodig is" data-review="tekst" data-review-vraag="Welke data kun je leveren, en wanneer?" style="border-bottom:0">
-      <div class="eyebrow">Wat er nodig is</div>
-      <h2>${open.length} vragen om data of een besluit</h2>
-      <div class="scroll"><table class="data" data-open style="min-width:560px"><thead><tr><th>Indicator</th><th>Status</th><th>Nodig</th></tr></thead><tbody>
-        ${open.map((i) => `<tr><td><a href="#i-${i.sleutel}">${i.naam}</a></td><td>${statusChip(i.datalade.status)}</td><td>${i.datalade.nodig}</td></tr>`).join("")}
+    <section id="nodig" data-onderwerp="${THEMA.sleutel}-nodig" data-label="Nog niet beschikbaar" data-review="tekst" data-review-vraag="Welke data kun je leveren, en wanneer?" style="border-bottom:0">
+      <div class="eyebrow">Nog niet beschikbaar</div>
+      <h2>Wat je hier nog niet ziet</h2>
+      <div class="scroll"><table class="data" data-open style="min-width:520px"><thead><tr><th>Indicator</th><th>Nog niet te zien</th></tr></thead><tbody>
+        ${open.map((i) => `<tr><td><a href="#i-${i.sleutel}">${i.naam}</a></td><td>${i.datalade.ontbreekt}</td></tr>`).join("")}
       </tbody></table></div>
-      <p class="foot">Bronnen: <a href="${D.bronnen.datalade.url}#gebied=${F.rayon.code}">${bronDatalade()}</a> · <a href="${D.bronnen.loopbaarheid.url}">${bronLoop()}</a>. Regenereren met <code>scripts/bouw_datalade.py</code>.</p>
+      <p class="foot">Bronnen: <a href="${D.bronnen.datalade.url}#gebied=${F.rayon.code}">${bronDatalade()}</a> (versie ${kort(D.bronnen.datalade.commit)}) en de <a href="${D.bronnen.loopbaarheid.url}">${bronLoop()}</a> (versie ${kort(D.bronnen.loopbaarheid.commit)}).</p>
     </section>`;
   NA_RENDER.forEach((fn) => veilig(fn.name, fn));
   klapIn(document.getElementById("inhoud"));
+  veilig("koppel", koppel);
   document.dispatchEvent(new Event("gerenderd"));
 }
 

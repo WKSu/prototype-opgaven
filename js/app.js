@@ -31,12 +31,6 @@ const F = FUNCTIONEREN;
 const alleIndicatoren = () => F.themas.flatMap((t) => t.indicatoren);
 const themaVan = (ind) => F.themas.find((t) => t.indicatoren.includes(ind));
 
-const STATUS = {
-  ja: "Beantwoord in de datalade",
-  deels: "Deels in de datalade",
-  nee: "Niet in de datalade",
-};
-
 // Waar de datalade het antwoord al heeft, vervangt het echte cijfer het fictieve. Ontbreekt
 // data/datalade.js, dan blijft de mock-up staan.
 const UIT_DATALADE = {
@@ -181,15 +175,14 @@ function indicatorkaart(ind) {
   const n = normVan(ind);
   const normTekst = n ? `${SOORT[n.soort]}: ${n.tekst}. ${n.document}.` : "Geen norm. Een opvallende waarde is hooguit een signaal.";
   return `<dl class="ikaart">
-    <div><dt>Wat meet het</dt><dd>${ind.definitie}</dd></div>
-    <div><dt>Niveau en bron</dt><dd>${ind.niveau} · ${ind.bron}</dd></div>
-    <div><dt>Beschikbaar volgens themateam</dt><dd>${ind.data}</dd></div>
-    <div><dt>In de datalade</dt><dd><span class="oordeel o-${ind.datalade.status}">${STATUS[ind.datalade.status]}</span>
-      <br><a href="${themaVan(ind).pagina}#i-${ind.sleutel}">Bekijk in de ${themaVan(ind).naam}-viewer</a></dd></div>
+    <div><dt>Wat het zegt</dt><dd>${ind.vraag}</dd></div>
+    <div><dt>Hoe gemeten</dt><dd>${ind.meting}</dd></div>
+    <div><dt>Bron</dt><dd>${ind.bron}, per ${ind.niveau}<br><a href="${themaVan(ind).pagina}#i-${ind.sleutel}">Kaart en cijfers per buurt in de ${themaVan(ind).naam}-viewer</a></dd></div>
     <div><dt>Norm</dt><dd>${normTekst}</dd></div>
     <div class="filter${ind.actie ? "" : " leeg"}"><dt>Wat doen we als het rood staat</dt>
       <dd>${ind.actie || "Nog geen handelingsperspectief afgesproken."}</dd></div>
-    ${ind.letop ? `<div><dt>Let op</dt><dd>${ind.letop}</dd></div>` : ""}</dl>`;
+    ${ind.letop ? `<div><dt>Let op</dt><dd>${ind.letop}</dd></div>` : ""}
+    ${ind.datalade.ontbreekt ? `<div><dt>Nog niet te zien</dt><dd>${ind.datalade.ontbreekt}</dd></div>` : ""}</dl>`;
 }
 
 function tabel(thema) {
@@ -234,7 +227,7 @@ function kerncijfers() {
 
   const ovZonderNorm = getoond(F.themas.find((t) => t.sleutel === "ov")).every((i) => !i.norm);
   document.getElementById("gevoeligheid").innerHTML = !S.normen
-    ? "<b>Normenlaag uit.</b> Je ziet de cijfers neutraal, zoals in de datalade. Alleen wat ontbreekt, blijft gemarkeerd."
+    ? "<b>Normenlaag uit.</b> Je ziet de cijfers zonder oordeel. Alleen wat ontbreekt, blijft gemarkeerd."
     : `<b>Hoe stevig is dit beeld?</b> Maar ${metNorm} van de ${alle.length} indicatoren hebben een norm, en daarvan is er ${beleid} vastgesteld beleid.${ovZonderNorm ? " OV heeft geen enkele norm en kleurt daardoor nergens rood." : ""}`;
 }
 
