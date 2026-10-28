@@ -14,6 +14,7 @@ const OORDEEL = {
   ok: { t: "Voldoet", g: "✓" },
   geen: { t: "Alleen tonen", g: "–" },
   leeg: { t: "Ontbreekt", g: "○" },
+  deels: { t: "Deels gemeten", g: "◐" },
 };
 
 function veilig(naam, fn) {
@@ -48,11 +49,81 @@ const UIT_DATALADE = {
     return { v: d.aandeel, toel: "over het looproutenetwerk" };
   },
 };
+// Handmatige leveringen staan los van de datalade, elk in een eigen bestand. `geladen` zegt of
+// dat bestand er is; zo niet, dan blijft de mock-up staan.
+const woonSubbuurten = () => (typeof DATALADE !== "undefined" ? new Set(DATALADE.parkeren.subbuurten.kaart.map((k) => k.code)) : null);
+const UIT_HANDMATIG = {
+  // Een gebied zonder telling is onbekend, geen 0. Telt maar een deel van de subbuurten, dan
+  // kan het cijfer rood worden, maar nooit "voldoet": een ongetelde subbuurt is niet onder 90%.
+  "parkeerdruk-subbuurt": {
+    label: "telling",
+    geladen: () => typeof PARKEERDRUK !== "undefined",
+    fn: (code) => {
+      const woon = woonSubbuurten();
+      const sb = PARKEERDRUK.subbuurten.filter((s) => s.gebied === code && (!woon || woon.has(s.code)));
+      const geteld = sb.filter((s) => s.druk != null);
+      if (!geteld.length) return { v: null, toel: `geen werkdagnachttelling · ${sb.length} subbuurten` };
+      const tussen = geteld.filter((s) => s.druk > 85 && s.druk <= 90).length;
+      return {
+        v: geteld.filter((s) => s.druk > 90).length,
+        toel: `van ${geteld.length} geteld (${sb.length}) · ${tussen} tussen 85–90%`,
+        onvolledig: geteld.length < sb.length || geteld.some((s) => !s.volledig),
+      };
+    },
+  },
+  "beleving-parkeren": {
+    label: "enquête",
+    geladen: () => typeof RAPPORTCIJFER !== "undefined",
+    fn: (code) => {
+      const g = RAPPORTCIJFER.gebieden[code];
+      return { v: g.cijfer, toel: `${g.onvoldoende}% onvoldoende · n = ${g.n}${g.indicatief ? ", indicatief" : ""}` };
+    },
+  },
+  // Druk over de getelde subbuurten met voorzieningen; geen telling is onbekend, geen 0.
+  "bezetting-fietsparkeren": {
+    label: "telling",
+    geladen: () => typeof FIETSPARKEREN !== "undefined",
+    fn: (code) => {
+      const woon = woonSubbuurten();
+      const alle = woon ? [...woon].filter((c) => DATALADE.parkeren.subbuurten.kaart.find((k) => k.code === c).gebied === code).length : null;
+      const sb = FIETSPARKEREN.subbuurten.filter((s) => s.gebied === code && (!woon || woon.has(s.code)));
+      if (!sb.length) return { v: null, toel: `geen fietsparkeertelling${alle ? ` · ${alle} subbuurten` : ""}` };
+      const cap = sb.reduce((a, s) => a + s.capaciteit, 0), f = sb.reduce((a, s) => a + s.fietsen, 0);
+      return {
+        v: Math.round((100 * f) / cap),
+        toel: `${fmt(cap)} plekken · ${sb.filter((s) => s.druk > 100).length} van ${sb.length} subbuurten boven 100%${alle && sb.length < alle ? ` (${alle})` : ""}`,
+      };
+    },
+  },
+  // Som over som, alleen subbuurten met woonadressen: daar gaat het straatprofiel over.
+  "ruimtebeslag-parkeren": {
+    label: "BGT",
+    geladen: () => typeof RUIMTEBESLAG !== "undefined",
+    fn: (code) => {
+      const woon = woonSubbuurten();
+      const sb = RUIMTEBESLAG.subbuurten.filter((s) => s.gebied === code && (!woon || woon.has(s.code)));
+      const met = sb.filter((s) => s.aandeel != null);
+      if (!met.length) return { v: null, toel: `geen BGT · ${sb.length} subbuurten` };
+      const teller = met.reduce((a, s) => a + s.parkeren, 0), noemer = met.reduce((a, s) => a + s.openbaar, 0);
+      const geteld = met.filter((s) => s.bron === "telling").length;
+      return { v: Math.round((100 * teller) / noemer), toel: `${met.length} van ${sb.length} subbuurten · ${geteld} geheel uit telling` };
+    },
+  },
+};
 function waarde(ind, code) {
+  const hand = UIT_HANDMATIG[ind.sleutel];
+  if (hand && hand.geladen()) return { ...hand.fn(code), echt: hand.label };
   const echt = typeof DATALADE !== "undefined" && UIT_DATALADE[ind.sleutel];
-  if (echt) return { ...echt(code), echt: true };
+  if (echt) return { ...echt(code), echt: "datalade" };
   return ind.waarden[code] || { v: null };
 }
+// Het overzicht toont alleen indicatoren met echte cijfers; de rest staat met wat er nodig is in
+// de themaviewer. Een gebied zonder cijfer binnen zo'n indicator blijft zichtbaar als 'Ontbreekt'.
+const heeftCijfers = (ind) => {
+  const hand = UIT_HANDMATIG[ind.sleutel];
+  return (hand && hand.geladen()) || (typeof DATALADE !== "undefined" && !!UIT_DATALADE[ind.sleutel]);
+};
+const getoond = (thema) => thema.indicatoren.filter(heeftCijfers);
 const normVan = (ind) => (ind.norm ? F.normen[ind.norm] : null);
 const fmt = (v, d = 0) =>
   v.toLocaleString("nl-NL", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -74,13 +145,14 @@ function chip(st) {
 
 function cel(ind, code) {
   const w = waarde(ind, code);
-  const st = oordeel(w.v, normVan(ind));
+  const ruw = oordeel(w.v, normVan(ind));
+  const st = ruw === "ok" && w.onvolledig ? "deels" : ruw;
   const getal = w.v == null ? "–" : fmt(w.v, ind.decimalen || 0);
   const toonChip = S.normen || st === "leeg";
   return `<td class="getal">
     <div class="w">${getal}${w.v == null || !ind.eenheid ? "" : ` <span class="e">${ind.eenheid}</span>`}</div>
     ${w.toel ? `<div class="toel">${w.toel}</div>` : ""}
-    ${w.echt ? `<div class="bron-echt">datalade</div>` : ""}
+    ${w.echt && w.v != null ? `<div class="bron-echt">${w.echt}</div>` : ""}
     ${toonChip ? `<div>${chip(st)}</div>` : ""}</td>`;
 }
 
@@ -110,7 +182,8 @@ function tabel(thema) {
   const G = F.gebieden;
   const kolommen = G.length + 2;
   let groep = null;
-  const rijen = thema.indicatoren
+  const weg = thema.indicatoren.filter((i) => !heeftCijfers(i));
+  const rijen = getoond(thema)
     .map((ind) => {
       const kop = ind.groep && ind.groep !== groep ? `<tr class="groep"><th colspan="${kolommen}" scope="colgroup">${ind.groep}</th></tr>` : "";
       groep = ind.groep;
@@ -124,28 +197,28 @@ function tabel(thema) {
     <colgroup><col style="width:26%">${G.map(() => `<col style="width:17%">`).join("")}<col style="width:23%"></colgroup>
     <thead><tr><th>Indicator</th>${G.map((g) => `<th class="getal">${g.naam}</th>`).join("")}<th>Norm</th></tr></thead>
     <tbody>${rijen}</tbody></table></div>
-    <div class="foot">Waarden fictief, behalve waar ‘datalade’ staat. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.</div></div>`;
+    <div class="foot">Bron per waarde: ${[...new Set(["datalade", ...Object.values(UIT_HANDMATIG).map((h) => h.label)])].map((l) => `‘${l}’`).join(", ").replace(/, ([^,]*)$/, " of $1")}. Klik een regel open voor de indicatorkaart. Geen rayontotaal: een gemiddelde van drie gebieden verbergt waar het knelt.${weg.length ? ` Nog zonder cijfers, en daarom niet in dit overzicht: ${weg.map((i) => `<a href="${thema.pagina}#i-${i.sleutel}">${i.naam.toLowerCase()}</a>`).join(", ")}. De ${thema.naam}-viewer zegt per indicator welke data nodig is.` : ""}</div></div>`;
 }
 
 function kerncijfers() {
-  const alle = alleIndicatoren();
+  const alle = F.themas.flatMap(getoond);
   const cellen = alle.flatMap((ind) => F.gebieden.map((g) => oordeel(waarde(ind, g.code).v, normVan(ind))));
   const metNorm = alle.filter((i) => i.norm).length;
   const beleid = alle.filter((i) => normVan(i)?.soort === "beleid").length;
   const rood = cellen.filter((s) => s === "rood").length;
   const leeg = cellen.filter((s) => s === "leeg").length;
   const blokken = [
-    [alle.length, "indicatoren voor Parkeren en OV"],
+    [alle.length, `indicatoren met cijfers, van ${alleIndicatoren().length}`],
     [metNorm, `met een norm, waarvan ${beleid} vastgesteld beleid`],
     [S.normen ? rood : "–", "keer ‘voldoet niet’ over drie gebieden", true],
     [alle.length - metNorm, "zonder norm: alleen tonen"],
     [leeg, "gebiedscijfers die ontbreken"],
   ];
   document.getElementById("kerncijfers").innerHTML = blokken
-    .map(([n, l, r]) => `<div class="cell${r && S.normen ? " rood" : ""}"><div class="num">${n}</div><div class="lbl">${l}</div><div class="src">mock-up</div></div>`)
+    .map(([n, l, r]) => `<div class="cell${r && S.normen ? " rood" : ""}"><div class="num">${n}</div><div class="lbl">${l}</div></div>`)
     .join("");
 
-  const ovZonderNorm = F.themas.find((t) => t.sleutel === "ov").indicatoren.every((i) => !i.norm);
+  const ovZonderNorm = getoond(F.themas.find((t) => t.sleutel === "ov")).every((i) => !i.norm);
   document.getElementById("gevoeligheid").innerHTML = !S.normen
     ? "<b>Normenlaag uit.</b> Je ziet de cijfers neutraal, zoals in de datalade. Alleen wat ontbreekt, blijft gemarkeerd."
     : `<b>Hoe stevig is dit beeld?</b> Maar ${metNorm} van de ${alle.length} indicatoren hebben een norm, en daarvan is er ${beleid} vastgesteld beleid.${ovZonderNorm ? " OV heeft geen enkele norm en kleurt daardoor nergens rood." : ""}`;

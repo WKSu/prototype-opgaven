@@ -1,0 +1,4 @@
+# Handmatige leveringen (tellingen, enquête, BGT): groot en niet openbaar; de scripts
+# in scripts/ maken er de aggregaten in data/ van.
+data_manual/
+__pycache__/
