@@ -3,10 +3,12 @@
 // de cijfers uit DATALADE in data/datalade.js (gegenereerd). Echte cijfers, geen normen:
 // dit is onderzoek, en rood hoort in het overzicht, niet hier.
 
-const F = FUNCTIONEREN;
-const D = DATALADE;
-const THEMA = F.themas.find((t) => t.sleutel === document.body.dataset.thema);
-const GEBIED = Object.fromEntries(F.gebieden.map((g) => [g.code, g.naam]));
+// typeof, want een ontbrekend databestand mag geen ReferenceError geven: dan blijft de pagina
+// stil leeg. Onderaan staat welk bestand ontbreekt.
+const F = typeof FUNCTIONEREN !== "undefined" ? FUNCTIONEREN : null;
+const D = typeof DATALADE !== "undefined" ? DATALADE : null;
+const THEMA = F && F.themas.find((t) => t.sleutel === document.body.dataset.thema);
+const GEBIED = F ? Object.fromEntries(F.gebieden.map((g) => [g.code, g.naam])) : {};
 const STATUS = { ja: "Beantwoord", deels: "Deels", nee: "Niet in de datalade" };
 
 function veilig(naam, fn) {
@@ -252,4 +254,15 @@ function pagina() {
   document.dispatchEvent(new Event("gerenderd"));
 }
 
-veilig("pagina", pagina);
+const ontbreekt = [!F && "data/indicatoren.js", !D && "data/datalade.js"].filter(Boolean);
+const inhoud = document.getElementById("inhoud");
+if (ontbreekt.length) {
+  document.body.dataset.veiligFouten = "data";
+  inhoud.innerHTML = `<section><div class="nodig"><b>Deze viewer kon niet worden opgebouwd</b>
+    Niet geladen: ${ontbreekt.join(", ")}. Dat gebeurt als je dit HTML-bestand los opent, bijvoorbeeld als
+    voorbeeldweergave of bijlage. Open de hele map, of de GitHub Pages-versie.</div></section>`;
+} else {
+  // veilig() geeft bij een fout een melding terug; die moet op de pagina, anders blijft hij leeg.
+  const fout = veilig("pagina", pagina);
+  if (fout) inhoud.innerHTML = `<section>${fout}</section>`;
+}
