@@ -51,7 +51,8 @@ const datum = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString("nl-NL", {
 const bronDatalade = () => "datalade gebiedsplannen";
 const bronLoop = () => "OV-verkenner Invloedsgebied ov-haltes";
 // Waar de OV-cijfers vandaan komen, in één zin voor onder een blok.
-const ovBron = () => `Bron: dienstregeling van een werkdag (GTFS), BAG-adressen en looproutes (OpenStreetMap), via de ${bronLoop()}.`;
+const ovBron = () =>
+  `Bron: dienstregeling van ${D.ov.peildatum ? `dinsdag ${datum(D.ov.peildatum)}` : "een werkdag"} (GTFS), BAG-adressen en looproutes (OpenStreetMap), via de ${bronLoop()}.`;
 
 /* ---------- parkeren ---------- */
 
@@ -597,9 +598,9 @@ function bediening() {
     ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, (xy) => zonePaden(xy) + haltePunten(xy))}
     ${buurtTabelKop("bed-buurten", "Goed bediend")}
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
-    <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.</p>
+    <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.${uurprofielNoot()}</p>
     ${uurprofiel()}
-    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()} Uurprofiel: dienstregeling van ${datum(ov(F.gebieden[0].code).gtfsPeildatum)}, ${bronDatalade()}.</div>`;
+    <div class="foot">Vertrekken per uur per richting, gemiddeld over het dagdeel. ${reikwijdte()} ${ovBron()}${uurDag() === D.ov.peildatum ? "" : ` Uurprofiel: dienstregeling van ${datum(uurDag())}, ${bronDatalade()}.`}</div>`;
 }
 
 function tekenBediening() {
@@ -661,6 +662,15 @@ NA_RENDER.push(function bedieningSchuifjes() {
   };
   tekenBediening();
 });
+
+// Het uurprofiel kan op een andere dag rusten dan de cijfers per adres (de datalade kiest zijn
+// eigen dinsdag). Dan zegt de tekst dat, en in juli en augustus ook waarom het ertoe doet.
+const uurDag = () => ov(F.gebieden[0].code).gtfsPeildatum;
+function uurprofielNoot() {
+  if (!D.ov.peildatum || uurDag() === D.ov.peildatum) return "";
+  const zomer = [7, 8].includes(Number(uurDag().slice(5, 7)));
+  return ` <b>Andere dag dan de cijfers hierboven:</b> ${datum(uurDag())}, niet ${datum(D.ov.peildatum)}.${zomer ? " Die dag valt in de zomervakantie, en dan rijden tram en metro minder vaak. Kijk naar de vorm van de dag, niet naar de aantallen." : ""}`;
+}
 
 function uurprofiel() {
   const max = Math.max(...F.gebieden.flatMap((g) => ov(g.code).uurprofiel));

@@ -121,9 +121,6 @@ geregeld zijn voor een storing (vervangend vervoer, een tweede lijn)?
   de randen.
 - **De buurtkaart noemt per lijn de beste halte binnen bereik.** In een grote buurt kan een
   bewoner aan de andere kant minder vaak een vertrek hebben.
-- **Twee dienstregelingen.** De cijfers per adres gaan uit van dinsdag 22 september 2026. Het
-  uurprofiel (vertrekken per uur) komt uit 11 augustus 2026, in de zomervakantie. Daar kan een
-  zomerdienstregeling in zitten.
 - **Kleine buurten springen.** Noord Kethel (36 adressen) en Landzicht (198) geven grote
   percentages op weinig woningen.
 

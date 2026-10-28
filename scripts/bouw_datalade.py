@@ -16,10 +16,14 @@ versie van de feiten.
 """
 
 import argparse
+import csv
+import datetime as dt
+import io
 import json
 import math
 import re
 import subprocess
+import zipfile
 from pathlib import Path
 
 RAYON = "RAYON_NOORD_BUITEN"
@@ -546,7 +550,122 @@ def meerzijdig(data, html, datalade, woon, alle_paren) -> dict:
     }
 
 
-def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
+MAANDEN = [
+    "januari",
+    "februari",
+    "maart",
+    "april",
+    "mei",
+    "juni",
+    "juli",
+    "augustus",
+    "september",
+    "oktober",
+    "november",
+    "december",
+]
+
+
+def peildatum_verkenner(html: str) -> dt.date:
+    """De dienstregelingsdag van de verkenner, uit zijn eigen tekst ('peildatum 22 september 2026')."""
+    m = re.search(
+        r"peildatum\s+(\d{1,2})(?:&nbsp;|\s)+([a-z]+)(?:&nbsp;|\s)+(\d{4})", html
+    )
+    if not m or m.group(2) not in MAANDEN:
+        raise ValueError("loopbaarheid-ov: peildatum niet gevonden")
+    return dt.date(int(m.group(3)), MAANDEN.index(m.group(2)) + 1, int(m.group(1)))
+
+
+def uurprofiel_uit_gtfs(zippad: Path, peildatum: dt.date, vlakken: dict) -> dict:
+    """Vertrekken per uur van de dag op de peildatum, per gebied: alle ritten die vertrekken
+    vanaf een halte binnen de gebiedsgrens. Zelfde regel als de datalade (stap ov), maar op een
+    gekozen dag. Tijden na middernacht (24:00+) tellen bij 0–3 uur."""
+    ymd = peildatum.strftime("%Y%m%d")
+
+    with zipfile.ZipFile(zippad) as z:
+
+        def rijen(naam):
+            r = csv.reader(io.TextIOWrapper(z.open(naam), encoding="utf-8-sig"))
+            kop = next(r)
+            return ({k: v for k, v in zip(kop, rij)} for rij in r)
+
+        actief = set()
+        if "calendar.txt" in z.namelist():
+            dag = [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ]
+            for r in rijen("calendar.txt"):
+                if (
+                    r[dag[peildatum.weekday()]] == "1"
+                    and r["start_date"] <= ymd <= r["end_date"]
+                ):
+                    actief.add(r["service_id"])
+        for r in rijen("calendar_dates.txt"):
+            if r["date"] == ymd:
+                (actief.add if r["exception_type"] == "1" else actief.discard)(
+                    r["service_id"]
+                )
+
+        # Eerst een ruim kader om het rayon, dan precies op de gebiedsgrens.
+        hoeken = [
+            p
+            for g in vlakken.values()
+            for v in g
+            for poly in (
+                v["coordinates"] if v["type"] == "MultiPolygon" else [v["coordinates"]]
+            )
+            for p in poly[0]
+        ]
+        lons, lats = [p[0] for p in hoeken], [p[1] for p in hoeken]
+        kader = (min(lons) - 0.01, max(lons) + 0.01, min(lats) - 0.01, max(lats) + 0.01)
+        gebied_van = {}
+        for r in rijen("stops.txt"):
+            if not r["stop_lat"]:
+                continue
+            lon, lat = float(r["stop_lon"]), float(r["stop_lat"])
+            if kader[0] <= lon <= kader[1] and kader[2] <= lat <= kader[3]:
+                code = next(
+                    (
+                        c
+                        for c in GEBIEDEN
+                        if any(in_vlak(lon, lat, g) for g in vlakken[c])
+                    ),
+                    None,
+                )
+                if code:
+                    gebied_van[r["stop_id"]] = code
+        ritten = {r["trip_id"] for r in rijen("trips.txt") if r["service_id"] in actief}
+        uren = {c: [0] * 24 for c in GEBIEDEN}
+        r = csv.reader(io.TextIOWrapper(z.open("stop_times.txt"), encoding="utf-8-sig"))
+        kop = next(r)
+        i_rit, i_halte, i_tijd = (
+            kop.index(k) for k in ("trip_id", "stop_id", "departure_time")
+        )
+        for rij in r:
+            code = gebied_van.get(rij[i_halte])
+            if code and rij[i_tijd] and rij[i_rit] in ritten:
+                uren[code][int(rij[i_tijd].split(":")[0]) % 24] += 1
+    # Een feed die de dag niet dekt, geeft nul vertrekken; dat is een fout, geen uitkomst.
+    leeg = [c for c in GEBIEDEN if not sum(uren[c])]
+    if leeg:
+        raise ValueError(
+            f"{zippad.name}: geen vertrekken op {peildatum} in {', '.join(leeg)}; kies een feed die die dag dekt"
+        )
+    return uren
+
+
+def ov(
+    datalade: Path,
+    loopbaarheid_html: Path,
+    gtfs: Path | None = None,
+    peildatum: dt.date | None = None,
+) -> dict:
     html = loopbaarheid_html.read_text(encoding="utf-8")
     data = json_blok(html, "d-data")
     eis(
@@ -681,13 +800,28 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
         ]
         return sorted(rijen, key=lambda r: (-r[1], r[0]))
 
+    # Uurprofiel: standaard uit de datalade, op de dag waarop die gebouwd is. Met een eigen
+    # GTFS-feed op de dag van de verkenner, zodat het profiel en de cijfers per adres op
+    # dezelfde dienstregeling rusten (de datalade-dag kan in de zomervakantie vallen).
+    dag_verkenner = peildatum_verkenner(html)
+    eigen = (
+        uurprofiel_uit_gtfs(gtfs, peildatum or dag_verkenner, vlakken) if gtfs else None
+    )
     per_gebied = {}
     for code in GEBIEDEN:
         ovg = lees_const(datalade / f"data/{code}/ov.js")
         eis(ovg, "lijnen", "vertrekPerUur", "peildatum", waar=f"{code}/ov.js")
-        uren = [
+        datalade_uren = [
             sum(reeks[u] for reeks in ovg["vertrekPerUur"].values()) for u in range(24)
         ]
+        # Een feed zonder één vervoerder (RET publiceert per periode) geeft niet nul, maar
+        # veel te weinig. Zomer tegen gewoon scheelt een kwart; minder dan de helft is een gat.
+        if eigen and sum(eigen[code]) < 0.5 * sum(datalade_uren):
+            raise ValueError(
+                f"{gtfs.name}: {sum(eigen[code])} vertrekken in {code}, tegen "
+                f"{sum(datalade_uren)} in de datalade; de feed dekt die dag niet volledig"
+            )
+        uren = eigen[code] if eigen else datalade_uren
         per_gebied[code] = {
             "buurten": [
                 {
@@ -705,8 +839,10 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
             ],
             "haltes": sorted(haltes[code], key=lambda h: h["naam"]),
             "uurprofiel": uren,
-            "gtfsPeildatum": ovg["peildatum"],
-            "gtfsBron": ovg["bron"],
+            "gtfsPeildatum": (peildatum or dag_verkenner).isoformat()
+            if eigen
+            else ovg["peildatum"],
+            "gtfsBron": f"GTFS NDOV/OVapi ({gtfs.name})" if eigen else ovg["bron"],
         }
     mz = meerzijdig(data, html, datalade, woon, alle_paren)
     for code in GEBIEDEN:
@@ -729,6 +865,7 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
             "metroTreinMaxM": AFSTAND_METRO_MAX,
         },
         "loopbaarheidBron": "loopbaarheid-ov: CHB en GTFS via NDOV/OVapi, BAG via PDOK, looproutes uit OSM",
+        "peildatum": dag_verkenner.isoformat(),
         "perGebied": per_gebied,
     }
 
@@ -746,6 +883,16 @@ def main():
         type=Path,
         required=True,
         help="index.html van WKSu/loopbaarheid-ov",
+    )
+    ap.add_argument(
+        "--gtfs",
+        type=Path,
+        help="GTFS-feed (zip) die de dag van de verkenner dekt; dan rekent het uurprofiel op die dag",
+    )
+    ap.add_argument(
+        "--peildatum",
+        type=dt.date.fromisoformat,
+        help="andere dag voor het uurprofiel, alleen ter controle (bijvoorbeeld 2026-08-11)",
     )
     ap.add_argument(
         "--uit",
@@ -769,7 +916,7 @@ def main():
         },
         "gebieden": GEBIEDEN,
         "parkeren": parkeren(a.datalade),
-        "ov": ov(a.datalade, a.loopbaarheid),
+        "ov": ov(a.datalade, a.loopbaarheid, a.gtfs, a.peildatum),
     }
     tekst = json.dumps(uit, ensure_ascii=False, separators=(",", ":"))
     a.uit.write_text(
