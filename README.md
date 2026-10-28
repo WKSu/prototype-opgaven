@@ -19,6 +19,8 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `data/parkeerdruk.js` | `const PARKEERDRUK`: gemeten parkeerdruk uit de parkeertellingen, gegenereerd door `scripts/bouw_parkeerdruk.py` |
 | `data/rapportcijfer.js` | `const RAPPORTCIJFER`: rapportcijfer parkeren bij de woning per gebied (Omnibusenquête), gegenereerd door `scripts/bouw_rapportcijfer.py` |
 | `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
+| `data/woningbouw.js` | `const WONINGBOUW`: woningbouwprojecten uit BoPro per subbuurt, context in de Parkeren-viewer, gegenereerd door `scripts/bouw_woningbouw.py` |
+| `data/pr.js` | `const PR`: P+R-terreinen met capaciteit uit het Nationaal Parkeerregister (RDW), opgehaald met `scripts/haal_npr.py` |
 | `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
 | `js/thema.js` | themaviewers: kaarten, tabellen, schuifjes en uurprofiel; tabellen boven 8 rijen klappen in |
@@ -86,6 +88,8 @@ ontbreekt of een subbuurtdeel een andere buurtnaam heeft dan de shapefile.
 ```bash
 uv run scripts/bouw_rapportcijfer.py     # data_manual/rapportcijfer parkeren/*.xlsx, blad Resultaat
 uv run scripts/bouw_fietsparkeren.py     # data_manual/fietsparkeertellingen/*.zip (Ecorys)
+uv run scripts/bouw_woningbouw.py        # data_manual/BoPro/BoPro_openbaar.gpkg
+uv run scripts/haal_npr.py               # P+R-capaciteit uit het NPR (open data, RDW)
 uv run scripts/haal_bgt.py               # BGT-extract voor het rayon bij PDOK, ~minuten
 uv run scripts/bouw_ruimtebeslag.py      # BGT + capaciteit uit de tellingen
 ```
