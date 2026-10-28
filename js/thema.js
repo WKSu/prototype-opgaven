@@ -15,7 +15,12 @@ const RC = typeof RAPPORTCIJFER !== "undefined" ? RAPPORTCIJFER : null;
 const RB = typeof RUIMTEBESLAG !== "undefined" ? RUIMTEBESLAG : null;
 const FP = typeof FIETSPARKEREN !== "undefined" ? FIETSPARKEREN : null;
 const THEMA = F && F.themas.find((t) => t.sleutel === document.body.dataset.thema);
-const GEBIED = F ? Object.fromEntries(F.gebieden.map((g) => [g.code, g.naam])) : {};
+// Extra gebieden (de Spaanse Polder) staan in de parkeertelling, niet in het rayon: wel op de
+// kaart en in de tabellen, niet in de gebiedscijfers van het overzicht.
+const EXTRA = P && P.extraGebieden ? P.extraGebieden : [];
+const ALLE_GEBIEDEN = [...(F ? F.gebieden : []), ...EXTRA];
+const RAYON = new Set(F ? F.gebieden.map((g) => g.code) : []);
+const GEBIED = Object.fromEntries(ALLE_GEBIEDEN.map((g) => [g.code, g.naam]));
 const STATUS = { ja: "Beantwoord", deels: "Deels", nee: "Niet in de datalade" };
 
 function veilig(naam, fn) {
@@ -96,14 +101,12 @@ const padVan = (xy) => (g) =>
     .join("");
 // Gebiedsnaam op het gemiddelde van alle hoekpunten van zijn vlakken.
 const gebiedLabels = (features, xy) =>
-  F.gebieden
-    .map((g) => {
+  ALLE_GEBIEDEN.map((g) => {
       const pts = features.filter((f) => f.gebied === g.code).flatMap((f) => polygonen(f.geometrie).flat(2)).map(xy);
       if (!pts.length) return "";
       const x = pts.reduce((a, p) => a + p[0], 0) / pts.length, y = pts.reduce((a, p) => a + p[1], 0) / pts.length;
       return `<text x="${x.toFixed(0)}" y="${y.toFixed(0)}" text-anchor="middle">${g.naam}</text>`;
-    })
-    .join("");
+  }).join("");
 
 function subbuurtKaart() {
   const sb = D.parkeren.subbuurten;
@@ -204,10 +207,11 @@ function sectorLabels(sectoren, xy) {
 }
 
 // Alleen subbuurten met woonadressen (die van de autobezitkaart): daar gaat de norm over.
-// De tellingen raken ook een paar subbuurten zonder woningen, zoals bedrijventerreinen.
+// De tellingen raken ook een paar subbuurten zonder woningen, zoals bedrijventerreinen. Een
+// extra gebied buiten het rayon staat niet op de autobezitkaart: daar alle getelde subbuurten.
 function drukPerGebied(code) {
   const woon = new Set(D.parkeren.subbuurten.kaart.map((k) => k.code));
-  const sb = P.subbuurten.filter((s) => s.gebied === code && woon.has(s.code));
+  const sb = P.subbuurten.filter((s) => s.gebied === code && (!RAYON.has(code) || woon.has(s.code)));
   const geteld = sb.filter((s) => s.druk != null);
   return {
     totaal: sb.length,
@@ -228,8 +232,8 @@ function parkeerdrukKaart() {
     const kop = `${d.buurt}, subbuurtdeel ${d.code}`;
     if (d.telling == null) return `${kop}: niet geteld`;
     const t = tellingNaam(telling(d.telling));
-    if (d.druk != null) return `${kop}: ${fmt(d.druk, 1)}% op de werkdagnacht, ${fmt(d.bezetting)} auto’s op ${fmt(d.capaciteit)} plekken. ${t}`;
-    if (d.hoogste) return `${kop}: geen werkdagnacht geteld. Hoogste meting ${fmt(d.hoogste.druk, 1)}% (${MOMENT[d.hoogste.soort]}). ${t}`;
+    if (d.druk != null) return `${kop}: ${fmt(d.druk, 1)}% op de ${MOMENT[d.moment]}, ${fmt(d.bezetting)} auto’s op ${fmt(d.capaciteit)} plekken. ${t}`;
+    if (d.hoogste) return `${kop}: geen werkdagnacht of late werkdagavond geteld. Hoogste meting ${fmt(d.hoogste.druk, 1)}% (${MOMENT[d.hoogste.soort]}). ${t}`;
     return `${kop}: geteld, maar geen openbare parkeerplaatsen. ${t}`;
   };
   const paden = P.subbuurtdelen.map((d) => `<path d="${pad(d.geometrie)}" fill="${vulling(d)}"><title>${titel(d)}</title></path>`).join("");
@@ -246,7 +250,7 @@ function parkeerdrukKaart() {
     .map((s) => `<path d="${pad(s.geometrie)}" style="fill:none;stroke:var(--asfalt);stroke-width:1.4;stroke-dasharray:5 3;pointer-events:none"/>`)
     .join("")}</g>${sectorLabels(eigen, xy)}`;
   const legenda = drukLegenda(
-    `<span><i style="background:${ROOD_ARCERING};border-color:var(--rood)"></i>subbuurt boven 90%: norm overschreden</span><span><i style="background:${ARCERING}"></i>geteld, geen werkdagnacht</span><span><i style="background:var(--beton)"></i>geteld, geen plekken</span><span><i style="background:var(--beton-diep)"></i>niet geteld</span><span><i style="border:1.5px dashed var(--asfalt);background:transparent"></i>parkeersector</span>`
+    `<span><i style="background:${ROOD_ARCERING};border-color:var(--rood)"></i>subbuurt boven 90%: norm overschreden</span><span><i style="background:${ARCERING}"></i>geteld, geen werkdagnacht of -avond</span><span><i style="background:var(--beton)"></i>geteld, geen plekken</span><span><i style="background:var(--beton-diep)"></i>niet geteld</span><span><i style="border:1.5px dashed var(--asfalt);background:transparent"></i>parkeersector</span>`
   );
   return `<div class="legenda-rij"><b>Bruto parkeerdruk, werkdagnacht</b>${legenda}</div>
     <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de subbuurtdelen met de gemeten parkeerdruk op de werkdagnacht">${arceerPatroon("pd-arcering")}${roodPatroon("pd-rood")}${rayonKnip("pd-rayon", pad)}${ondergrond}${sluier(P.subbuurtdelen, pad, W, hoogte)}${paden}${rood}${sectoren}${gebiedLabels(P.subbuurtdelen, xy)}${bronvermelding(W, hoogte)}</svg>`;
@@ -258,7 +262,7 @@ function tellingenTabel() {
     .map((t) => {
       const ms = t.metingen
         .map((m) => {
-          const nacht = m.soort === "werkdagnacht";
+          const nacht = m.soort === t.maatgevend;
           const w = m.druk == null ? 0 : (110 * m.druk) / max;
           return `<div style="display:grid;grid-template-columns:1fr 118px 4.2em;gap:8px;align-items:center;${nacht ? "font-weight:700" : ""}">
             <span>${m.id} · ${m.dag.toLowerCase()} ${m.tijd} · ${MOMENT[m.soort]}</span>
@@ -268,36 +272,38 @@ function tellingenTabel() {
       return `<tr><td>${t.naam}<div class="toel">${t.bureau}, ${t.code}</div></td><td>${t.gebieden.map((c) => GEBIED[c]).join(", ")}</td><td class="getal">${fmt(t.subbuurtdelen)}</td><td>${ms}</td></tr>`;
     })
     .join("");
-  return `<div class="scroll"><table class="data" style="min-width:680px"><thead><tr><th>Telling</th><th>Gebied</th><th class="getal">Subbuurtdelen in rayon</th><th>Druk per meting, over de getelde subbuurtdelen in het rayon</th></tr></thead><tbody>${rijen}</tbody></table></div>`;
+  return `<div class="scroll"><table class="data" style="min-width:680px"><thead><tr><th>Telling</th><th>Gebied</th><th class="getal">Subbuurtdelen</th><th>Druk per meting, over de getelde subbuurtdelen in de analyse</th></tr></thead><tbody>${rijen}</tbody></table></div>`;
 }
 
 function subbuurtDrukTabel(rijen) {
-  return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>Subbuurt</th><th>Buurt</th><th>Gebied</th><th class="getal">Plekken</th><th>Druk werkdagnacht</th><th class="getal">Geteld</th></tr></thead><tbody>
+  return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>Subbuurt</th><th>Buurt</th><th>Gebied</th><th class="getal">Plekken</th><th>Druk</th><th class="getal">Geteld</th></tr></thead><tbody>
     ${rijen
       .map((s) => `<tr><td>${s.code}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td class="getal">${fmt(s.capaciteit)}</td>
-        <td><span class="staaf" style="width:${Math.min(s.druk, 140).toFixed(0)}px"></span>${fmt(s.druk, 1)}%</td>
+        <td><span class="staaf" style="width:${Math.min(s.druk, 140).toFixed(0)}px"></span>${fmt(s.druk, 1)}%${RAYON.has(s.gebied) ? "" : ' <span class="toel">werkdagavond</span>'}</td>
         <td class="getal">${s.geteld} van ${s.delen} ${s.delen === 1 ? "deel" : "delen"}${s.volledig ? "" : " <span class=\"toel\">deels</span>"}</td></tr>`)
       .join("")}</tbody></table></div>`;
 }
 
 function parkeerdrukTelling() {
-  const per = Object.fromEntries(F.gebieden.map((g) => [g.code, drukPerGebied(g.code)]));
+  const per = Object.fromEntries(ALLE_GEBIEDEN.map((g) => [g.code, drukPerGebied(g.code)]));
   const nachten = P.tellingen.filter((t) => t.metingen.some((m) => m.soort === "werkdagnacht"));
-  const zonderNacht = P.tellingen.filter((t) => !nachten.includes(t));
+  const zonderNacht = P.tellingen.filter((t) => !t.maatgevend);
+  const avond = P.tellingen.filter((t) => t.maatgevend === "werkdagavond");
   const nachtDruk = (t) => t.metingen.find((m) => m.soort === "werkdagnacht").druk;
   const nachtDrukst = nachten.filter((t) => t.metingen.every((m) => (m.druk ?? 0) <= nachtDruk(t)));
-  const alle = F.gebieden.flatMap((g) => per[g.code].geteld).sort((a, b) => b.druk - a.druk);
+  const alle = ALLE_GEBIEDEN.flatMap((g) => per[g.code].geteld).sort((a, b) => b.druk - a.druk);
   const hoog = alle.filter((s) => s.druk > 85);
-  return `${strip(F.gebieden.map((g) => {
+  return `${strip(ALLE_GEBIEDEN.map((g) => {
       const p = per[g.code];
+      const extra = !RAYON.has(g.code);
       if (!p.geteld.length) return ["–", `geen werkdagnachttelling in ${g.naam}`, `0 van ${p.totaal} subbuurten geteld`];
-      return [`${p.boven.length} van ${p.geteld.length}`, `getelde subbuurten in ${g.naam} boven 90% op de werkdagnacht`, `${p.geteld.length} van ${p.totaal} geteld · ${p.tussen.length} tussen 85% en 90%`];
+      return [`${p.boven.length} van ${p.geteld.length}`, `getelde subbuurten in ${g.naam} boven 90% op de ${extra ? "werkdagavond" : "werkdagnacht"}`, `${p.geteld.length} van ${p.totaal} geteld · ${p.tussen.length} tussen 85% en 90%${extra ? ` · ${EXTRA.find((x) => x.code === g.code).toelichting}` : ""}`];
     }))}
     <h4 style="margin-top:18px">Gemeten parkeerdruk per subbuurtdeel</h4>
-    <p style="font-size:13.5px">De werkdagnacht is maatgevend: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen die dat moment meten, is het ook het drukste moment (tabel hieronder). ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen werkdagnacht; die vlakken zijn gearceerd en tellen niet mee.</p>
+    <p style="font-size:13.5px">De werkdagnacht is maatgevend: dan staan de auto’s van bewoners thuis. In ${nachtDrukst.length} van de ${nachten.length} tellingen die dat moment meten, is het ook het drukste moment (tabel hieronder). ${avond.map((t) => `${t.naam} heeft geen werkdagnacht; daar telt de werkdagavond (${t.metingen.find((m) => m.soort === "werkdagavond").tijd}).`).join(" ")} ${zonderNacht.map((t) => t.naam).join(" en ")} ${zonderNacht.length === 1 ? "heeft" : "hebben"} geen van beide; die vlakken zijn gearceerd en tellen niet mee.</p>
     ${parkeerdrukKaart()}
     <h4 style="margin-top:22px">Welk moment is maatgevend?</h4>
-    <p style="font-size:13.5px">Per telling de druk op elk meetmoment. Vet is de werkdagnacht.</p>
+    <p style="font-size:13.5px">Per telling de druk op elk meetmoment. Vet is het maatgevende moment.</p>
     ${tellingenTabel()}
     <h4 style="margin-top:22px">${hoog.length} getelde subbuurten boven 85%</h4>
     <p style="font-size:13.5px">Subbuurt = som van zijn getelde delen. ‘Deels’: niet elk subbuurtdeel met parkeerplaatsen is geteld, dus het cijfer geldt voor een deel van de subbuurt. Een subbuurt met weinig plekken springt snel boven 100%.</p>
@@ -487,7 +493,8 @@ function rbGebied(code, grens) {
 
 function ruimtebeslagKaart() {
   const W = 800;
-  const { xy, hoogte, ondergrond } = projectie(P.subbuurtdelen, W);
+  const rayon = P.subbuurtdelen.filter((d) => RAYON.has(d.gebied));
+  const { xy, hoogte, ondergrond } = projectie(rayon, W);
   const pad = padVan(xy);
   const geo = Object.fromEntries(P.subbuurtdelen.map((d) => [d.code, d.geometrie]));
   const sb = Object.fromEntries(RB.subbuurten.map((s) => [s.code, s]));
@@ -508,7 +515,7 @@ function ruimtebeslagKaart() {
     RB_LABELS.map((t, i) => `<span><i style="background:color-mix(in srgb, var(--schie) ${DRUK_TINT[i]}%, var(--wit))"></i>${t}</span>`).join("") +
     `<span><i style="background:radial-gradient(circle, var(--asfalt) 0 1px, transparent 1.2px) 0 0/5px 5px"></i>deel uit BGT, niet geteld</span><span><i style="background:var(--beton-diep)"></i>geen cijfer</span>`;
   return `<div class="legenda-rij"><b>Parkeren ÷ openbare ruimte</b>${legenda}</div>
-    <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de subbuurten met het ruimtebeslag van parkeren">${stip}${ondergrond}${sluier(P.subbuurtdelen, pad, W, hoogte)}${paden}${bgt}${gebiedLabels(P.subbuurtdelen, xy)}${bronvermelding(W, hoogte)}</svg>`;
+    <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van de subbuurten met het ruimtebeslag van parkeren">${stip}${ondergrond}${sluier(rayon, pad, W, hoogte)}${paden}${bgt}${gebiedLabels(rayon, xy)}${bronvermelding(W, hoogte)}</svg>`;
 }
 
 function ruimtebeslag() {

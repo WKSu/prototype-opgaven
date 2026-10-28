@@ -52,7 +52,10 @@ uv run scripts/bouw_parkeerdruk.py
 ```
 
 Maatgevend is de werkdagnacht (ma–vr, start tussen 23 en 5 uur); bij meer nachten het
-gemiddelde. Een telling zonder werkdagnacht staat op de kaart, maar telt niet mee. Het script
+gemiddelde. Zonder werkdagnacht telt een werkdagavond vanaf 20 uur; zonder beide staat de telling
+op de kaart, maar telt niet mee. Zijn er twee tellingen in één subbuurtdeel, dan telt de
+recentste met een werkdagnacht. De Spaanse Polder (gebied 18, buiten het rayon) staat in de
+analyse, niet in de gebiedscijfers van het overzicht (`EXTRA` in het script). Het script
 schrijft alleen aggregaten per subbuurtdeel, subbuurt en sector, en breekt af als een veld
 ontbreekt of een subbuurtdeel een andere buurtnaam heeft dan de shapefile.
 

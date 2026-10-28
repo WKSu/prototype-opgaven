@@ -33,6 +33,10 @@ GEBIEDEN = {
     6: "WK059906",
     14: "WK059914",
 }  # zelfde codes als bouw_datalade
+# Buiten de drie gebieden van het rayon, wel in de analyse: de Spaanse Polder grenst aan
+# Overschie en is geteld. Telt niet mee in de gebiedscijfers van het overzicht.
+EXTRA = {18: ("WK059918", "Spaanse Polder")}
+ALLE = {**GEBIEDEN, **{k: v[0] for k, v in EXTRA.items()}}
 WERKDAGEN = {"maandag", "dinsdag", "woensdag", "donderdag", "vrijdag"}
 VEREENVOUDIG_M = 8  # Douglas-Peucker in RD-meters; de kaart is zo’n 19 m per pixel
 NODIG = [
@@ -47,6 +51,8 @@ NODIG = [
 ]
 
 RD = Transformer.from_crs(28992, 4326, always_xy=True)
+# Het bureau staat niet altijd op dezelfde plek in de bestandsnaam; zoek op naam.
+BUREAUS = ["Ecorys", "Goudappel", "Arcadis", "Sweco", "Mobycon", "Spark", "DTV"]
 
 
 def eis(obj, *sleutels: str, waar: str):
@@ -74,7 +80,14 @@ def lees_telling(zip_pad: Path) -> dict:
     if not m:
         raise ValueError(f"{zip_pad.name}: naam niet als 'Parkeertelling X (code)'")
     with zipfile.ZipFile(zip_pad) as zf:
-        xlsx = [n for n in zf.namelist() if n.endswith(".xlsx")]
+        namen = " ".join(zf.namelist()).lower()
+        bureau = next((b for b in BUREAUS if b.lower() in namen), "bureau onbekend")
+        # ~$… is een Excel-slotbestand dat mee is gezipt; geen data.
+        xlsx = [
+            n
+            for n in zf.namelist()
+            if n.endswith(".xlsx") and not Path(n).name.startswith("~$")
+        ]
         if len(xlsx) != 1:
             raise ValueError(f"{zip_pad.name}: verwacht één .xlsx, vond {xlsx}")
         wb = openpyxl.load_workbook(
@@ -109,11 +122,10 @@ def lees_telling(zip_pad: Path) -> dict:
             },
         )
     return {
-        "naam": m.group(1),
+        # 'Hillegersberg (Sector 80+81) (2023)': het jaar komt al uit de metingen.
+        "naam": re.sub(r"\s*\(\d{4}\)$", "", m.group(1)),
         "code": m.group(2),
-        "bureau": xlsx[0].split("_")[1]
-        if xlsx[0][:2].isdigit()
-        else xlsx[0].split("_")[0],
+        "bureau": bureau,
         "metingen": sorted(metingen.values(), key=lambda x: int(x["id"][1:])),
         "rijen": data,
     }
@@ -225,10 +237,10 @@ def main():
     )
     sbd = {}
     for rec, vorm in zip(sbd_shp.records(), sbd_shp.shapes()):
-        if rec["GEBIED"] in GEBIEDEN:
+        if rec["GEBIED"] in ALLE:
             sbd[(rec["BUURT"], rec["SUBBUURT"], rec["SBTDEEL"])] = (rec, vorm)
 
-    # Per subbuurtdeel alle metingen uit alle tellingen; buiten het rayon valt weg.
+    # Per subbuurtdeel alle metingen uit alle tellingen; wat buiten valt, valt weg.
     tellingen, gemeten = [], {}
     for z in sorted(a.map.glob("*.zip")):
         t = lees_telling(z)
@@ -267,18 +279,51 @@ def main():
                     for m in t["metingen"]
                 ],
                 "subbuurtdelen": len(binnen),
-                "gebieden": sorted({GEBIEDEN[sbd[k][0]["GEBIED"]] for k in binnen}),
+                "gebieden": sorted({ALLE[sbd[k][0]["GEBIED"]] for k in binnen}),
             }
         )
+
+    # Peildatum per telling: de laatste meetdag, als (jaar, maand, dag).
+    def dag(d: str) -> tuple:
+        dd, mm, jj = str(d)[-10:].split("-")
+        return int(jj), int(mm), int(dd)
+
+    peil = [max(dag(m["datum"]) for m in t["metingen"]) for t in tellingen]
+
+    # Maatgevend per telling: de werkdagnacht. Zonder nacht de werkdagavond, als die om 20 uur
+    # of later begint (de Spaanse Polder: dinsdag 20-24 uur); anders geen cijfer.
+    def laat(m: dict) -> bool:
+        return int(re.match(r"\s*(\d{1,2})", m["tijd"]).group(1)) >= 20
+
+    maat = []
+    for t in tellingen:
+        soorten = {m["soort"] for m in t["metingen"]}
+        avond = any(m["soort"] == "werkdagavond" and laat(m) for m in t["metingen"])
+        maat.append(
+            "werkdagnacht"
+            if "werkdagnacht" in soorten
+            else "werkdagavond"
+            if avond
+            else None
+        )
+        t["maatgevend"] = maat[-1]
 
     delen = []
     volgorde = sorted(sbd, key=lambda k: sbd[k][0]["TEKST"])
     for k in volgorde:
         rec, vorm = sbd[k]
         ms = gemeten.get(k, [])
-        # Twee tellingen in hetzelfde subbuurtdeel komen in het rayon nu niet voor; gebeurt het
-        # toch, dan middelen we over alle werkdagnachten van beide.
-        nacht = [m for m in ms if m["soort"] == "werkdagnacht"]
+        # Twee tellingen in hetzelfde subbuurtdeel: de recentste met een maatgevend moment telt,
+        # niet een gemiddelde over jaren. Een werkdagnacht gaat voor een avond.
+        if len({m["telling"] for m in ms}) > 1:
+            kies = max(
+                {m["telling"] for m in ms},
+                key=lambda i: (maat[i] == "werkdagnacht", maat[i] is not None, peil[i]),
+            )
+            ms = [m for m in ms if m["telling"] == kies]
+        nacht = [
+            m for m in ms if maat[m["telling"]] and m["soort"] == maat[m["telling"]]
+        ]
         cap = sum(m["cap"] for m in nacht) / len(nacht) if nacht else None
         bez = sum(m["bez"] for m in nacht) / len(nacht) if nacht else None
         hoogste = max(
@@ -289,8 +334,9 @@ def main():
                 "code": rec["TEKST"],
                 "subbuurt": rec["TEKST"][:5],
                 "buurt": rec["BUURTNAAM"],
-                "gebied": GEBIEDEN[rec["GEBIED"]],
+                "gebied": ALLE[rec["GEBIED"]],
                 "telling": ms[0]["telling"] if ms else None,
+                "moment": nacht[0]["soort"] if nacht else None,
                 "nachten": len(nacht),
                 "capaciteit": round(cap, 1) if cap is not None else None,
                 "bezetting": round(bez, 1) if bez is not None else None,
@@ -379,7 +425,15 @@ def main():
     uit = {
         "bron": "Parkeertellingen gemeente Rotterdam (handmatig aangeleverd), subbuurtdelen en parkeersectoren (shapefiles)",
         "regel": "bruto parkeerdruk = (correct geparkeerd op algemene plekken + foutgeparkeerd) ÷ actuele capaciteit algemene plekken",
-        "maatgevend": "werkdagnacht: meting op maandag t/m vrijdag die start tussen 23 en 5 uur; bij meer nachten het gemiddelde",
+        "maatgevend": "werkdagnacht: meting op maandag t/m vrijdag die start tussen 23 en 5 uur; bij meer nachten het gemiddelde. Zonder werkdagnacht de werkdagavond vanaf 20 uur",
+        "extraGebieden": [
+            {
+                "code": c,
+                "naam": n,
+                "toelichting": "buiten de drie gebieden van het rayon",
+            }
+            for c, n in EXTRA.values()
+        ],
         "tellingen": tellingen,
         "subbuurtdelen": delen,
         "subbuurten": sorted(sb_uit, key=lambda s: s["code"]),
