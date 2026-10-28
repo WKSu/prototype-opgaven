@@ -379,10 +379,52 @@ const ov = (code) => D.ov.perGebied[code];
 
 /* ---------- OV-normen en buurtkaarten ---------- */
 
-// Stand van de schuifjes; begint op de standaardnorm uit FUNCTIONEREN.ovKeuzes.
-const S_OV = F ? { ...F.ovKeuzes } : {};
+// Stand van de schuifjes; begint op de standaardnorm uit FUNCTIONEREN.ovKeuzes. storing: de
+// gekozen verbinding in de storingstest ("" = de zwaarste per gebied).
+const S_OV = F ? { ...F.ovKeuzes, storing: "" } : {};
 // Interactieve blokken binden hun schuifjes nadat de pagina is opgebouwd.
 const NA_RENDER = [];
+// Wie meekijkt met de koppeling tussen kaart en tabel: bij elke markering (ook hover) en bij
+// elke vastgezette keuze (klik of buurtkiezer). Zo dimt de lijnenkaart en opent de buurtkaart.
+const BIJ_MARKEER = [];
+const BIJ_VASTZETTEN = [];
+
+// Vormen voor de OV-kaarten: lijnroutes, loopgebieden, gebied Rotterdam Centrum. Los bestand,
+// want het overzicht heeft ze niet nodig. Zonder dat bestand tonen de kaarten alleen de buurten.
+const OK = typeof OVKAART !== "undefined" ? OVKAART : null;
+
+// Ringen en lijnen staan gecodeerd: zigzag-verschillen van 1e-5 graad in base36, het schema van
+// de verkenner. Eén keer decoderen; een schuifje tekent dezelfde vormen vaak opnieuw.
+const PUNTEN = new Map();
+function ovPunten(s) {
+  if (!PUNTEN.has(s)) {
+    const v = s.split(",").map((t) => {
+      const z = parseInt(t, 36);
+      return z & 1 ? -((z + 1) >> 1) : z >> 1;
+    });
+    const punten = [];
+    for (let i = 0, x = 0, y = 0; i < v.length; i += 2) punten.push([(x += v[i]) / 1e5, (y += v[i + 1]) / 1e5]);
+    PUNTEN.set(s, punten);
+  }
+  return PUNTEN.get(s);
+}
+const ringPad = (xy, s, dicht) => "M" + ovPunten(s).map((p) => xy(p).map((n) => n.toFixed(1)).join(",")).join("L") + (dicht ? "Z" : "");
+const vlakPad = (xy, vlak) => vlak.map((poly) => poly.map((r) => ringPad(xy, r, true)).join("")).join("");
+const lijnPad = (xy, delen) => delen.map((d) => ringPad(xy, d, false)).join("");
+// Als GeoJSON-geometrie, voor projectie() en gebiedslabels.
+const vlakGeo = (vlak) => ({ type: "MultiPolygon", coordinates: vlak.map((poly) => poly.map(ovPunten)) });
+
+const hoofdletter = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const lijnNaam = (l) => `${hoofdletter(l.modus)} ${l.lijn}`;
+const lijnTip = (l) =>
+  `${lijnNaam(l)}${l.traject && l.traject !== "lijn" ? ` (${l.traject.replace(" <-> ", " – ")})` : ""}: ${l.zonderGeometrie ? "route onbekend" : l.tangentieel ? "rijdt om het centrum heen" : "rijdt door het centrum"}`;
+
+// Soort OV in vier kleuren uit het Okabe-Ito-palet: uit elkaar te houden bij kleurenblindheid,
+// en geen rood of groen, want die betekenen hier een oordeel of een aandeel.
+const MODI = ["trein", "metro", "tram", "bus"];
+const MODUS_KLEUR = { bus: "#56B4E9", tram: "#CC79A7", metro: "#E69F00", trein: "#0072B2" };
+const MODUS_R = { bus: 2.6, tram: 3.4, metro: 4.8, trein: 5.6 };
+const hoofdModus = (modi) => MODI.find((m) => modi.includes(m)) || "bus";
 
 const alleBuurten = () => F.gebieden.flatMap((g) => ov(g.code).buurten.map((b) => ({ ...b, gebied: g.code })));
 const alleHaltes = () => F.gebieden.flatMap((g) => ov(g.code).haltes);
@@ -401,18 +443,94 @@ const AANDEEL_KL = klassen([10, 30, 50, 70], ["tot 10%", "10–30%", "30–50%",
 const VERLIES_KL = klassen([5, 15, 30, 60], ["tot 5%", "5–15%", "15–30%", "30–60%", "60% en meer"]);
 
 // Kaart per buurt. De vlakken dragen data-buurt, zodat een schuifje alleen de kleur en de
-// hovertekst bijwerkt (kleurKaart) en de PDOK-ondergrond niet opnieuw laadt.
-function buurtKaart(id, titel, kl, waarde, hover, extra = () => "") {
+// hovertekst bijwerkt (kleurKaart) en de PDOK-ondergrond niet opnieuw laadt. omvang: extra
+// vormen die op de kaart moeten passen (gebied Rotterdam Centrum bij de richting-check).
+function buurtKaart(id, titel, kl, waarde, hover, extra = () => "", omvang = []) {
   const bs = alleBuurten();
   const W = 800;
-  const { xy, hoogte, ondergrond } = projectie(bs, W);
+  const { xy, hoogte, ondergrond } = projectie([...bs, ...omvang], W);
   const pad = padVan(xy);
   const paden = bs
     .map((b) => `<path d="${pad(b.geometrie)}" data-buurt="${attr(b.naam)}" data-koppel="${sleutel("buurt", b.naam)}" fill="${kl.kleur(waarde(b))}" data-tip="${attr(hover(b, waarde(b)))}"></path>`)
     .join("");
-  return `<div class="legenda-rij"><b>${titel}</b>${kl.legenda}</div>
+  return `<div class="legenda-rij kaartlegenda"><b>${titel}</b>${kl.legenda}</div>
     <svg id="${id}" class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart per buurt: ${titel}">${ondergrond}${sluier(bs, pad, W, hoogte)}${paden}${extra(xy)}${gebiedLabels(bs, xy)}${bronvermelding(W, hoogte)}</svg>`;
 }
+
+/* ---------- loopgebieden: waar de haltes reiken ---------- */
+
+// Per halte één vlak per loopafstand. De groep is doorschijnend, niet elk vlak apart: zo wordt
+// een plek onder drie haltes niet donkerder dan een plek onder één. Welke vlakken aan staan,
+// bepaalt het blok (toonZones).
+const ZONES = ["z500", "z800", "z1000"];
+const zonePaden = (xy) =>
+  OK
+    ? `<g class="zones">${OK.zones
+        .flatMap((z, i) => ZONES.filter((k) => z[k]).map((k) => `<path data-z="${i}" data-soort="${k}" d="${vlakPad(xy, z[k])}"></path>`))
+        .join("")}</g>`
+    : "";
+function toonZones(id, aan) {
+  document.querySelectorAll(`#${id} .zones path`).forEach((p) => p.classList.toggle("uit", !aan(OK.zones[p.dataset.z], p.dataset.soort)));
+}
+// Schakelaar tussen de uitkomst per buurt en het loopgebied van de haltes erachter.
+const laagKnoppen = (id) =>
+  OK
+    ? `<div class="knoppen laag" role="group" aria-label="Kaartlaag" data-kaart="${id}"><button type="button" data-laag="buurt" aria-pressed="true">Per buurt</button><button type="button" data-laag="loop" aria-pressed="false">Loopgebied van de haltes</button></div>`
+    : "";
+const loopLegenda = (id) => `<div class="legenda-rij loop-legenda" id="${id}-loop" hidden><span><i style="background:color-mix(in srgb, var(--schie) 55%, var(--wit))"></i><span id="${id}-loop-tekst"></span></span></div>`;
+function zetLaag(id, laag) {
+  const svg = document.getElementById(id);
+  if (!svg) return;
+  svg.classList.toggle("laag-loop", laag === "loop");
+  document.querySelectorAll(`.knoppen.laag[data-kaart="${id}"] button`).forEach((k) => k.setAttribute("aria-pressed", k.dataset.laag === laag));
+  const leg = document.getElementById(`${id}-loop`);
+  if (leg) leg.hidden = laag !== "loop";
+  if (svg.previousElementSibling) svg.previousElementSibling.hidden = laag === "loop";
+}
+NA_RENDER.push(function laagSchakelaars() {
+  document.querySelectorAll(".knoppen.laag button").forEach((k) => {
+    k.onclick = () => !k.disabled && zetLaag(k.parentElement.dataset.kaart, k.dataset.laag);
+  });
+});
+
+// Kleine uitleg bij de haltedekking: het loopgebied van één halte naast een cirkel hemelsbreed.
+function inzet() {
+  if (!OK) return "";
+  const z = OK.zones[OK.inzet.zone], r = OK.inzet.straalM;
+  const dLat = (1.25 * r) / 110540, dLon = (1.25 * r) / (111320 * Math.cos((z.lat * Math.PI) / 180));
+  const kader = { geometrie: { type: "Polygon", coordinates: [[[z.lon - dLon, z.lat - dLat], [z.lon + dLon, z.lat - dLat], [z.lon + dLon, z.lat + dLat], [z.lon - dLon, z.lat + dLat]]] } };
+  const W = 300;
+  const { xy, hoogte, ondergrond } = projectie([kader], W);
+  const [cx, cy] = xy([z.lon, z.lat]);
+  const straal = Math.abs(xy([z.lon, z.lat + r / 110540])[1] - cy);
+  return `<div class="uitleg-inzet">
+    <figure><svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Loopgebied van halte ${attr(z.naam)} naast een cirkel van ${r} meter">${ondergrond}
+      <path class="zone" d="${vlakPad(xy, z.z500)}"></path>
+      <circle class="cirkel" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${straal.toFixed(1)}"></circle>
+      <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" style="fill:var(--asfalt);stroke:var(--wit);stroke-width:1.5"></circle>
+      ${bronvermelding(W, hoogte)}</svg></figure>
+    <p><b>Wat betekent ‘op loopafstand’?</b> Halte ${z.naam}: groen is alles binnen ${r} m lopen over de looproutes, de stippellijn is ${r} m hemelsbreed. Het loopgebied is ${OK.inzet.aandeelVanCirkel}% van de cirkel. Je loopt om, en water, spoor en grote wegen houden het tegen. Daarom rekent deze viewer met looproutes en niet met een cirkel.</p>
+  </div>`;
+}
+
+/* ---------- haltes per soort OV ---------- */
+
+// Alle haltes die het rayon bedienen, ook net over de grens; zonder vormenbestand alleen die erin.
+const zoneHaltes = () => (OK ? OK.zones : alleHaltes());
+const modusPunten = (xy) =>
+  `<g class="modi">${zoneHaltes()
+    .slice()
+    .sort((a, b) => MODI.indexOf(hoofdModus(b.modi)) - MODI.indexOf(hoofdModus(a.modi)))
+    .map((h) => {
+      const m = hoofdModus(h.modi), [x, y] = xy([h.lon, h.lat]);
+      return `<circle class="modus" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${MODUS_R[m]}" fill="${MODUS_KLEUR[m]}" data-tip="${attr(`${h.naam}: ${h.modi.join(", ")}`)}"></circle>`;
+    })
+    .join("")}</g>`;
+const modusLegenda = () =>
+  `<div class="legenda-rij"><b>Haltes</b>${MODI.slice()
+    .reverse()
+    .map((m) => `<span><i class="rond" style="background:${MODUS_KLEUR[m]}"></i>${m}</span>`)
+    .join("")}<span>een halte met meer soorten krijgt de kleur van de snelste</span></div>`;
 function kleurKaart(id, kl, waarde, hover) {
   const per = Object.fromEntries(alleBuurten().map((b) => [b.naam, b]));
   document.querySelectorAll(`#${id} path[data-buurt]`).forEach((p) => {
@@ -425,8 +543,10 @@ function kleurKaart(id, kl, waarde, hover) {
 // tabel ingeklapt of uitgeklapt staan terwijl de cijfers veranderen.
 const buurtTabelKop = (id, kop) =>
   `<div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Buurt</th><th>Gebied</th><th class="getal">Woonadressen</th><th class="getal">Inwoners</th><th>${kop}</th></tr></thead><tbody id="${id}"></tbody></table></div>`;
-function buurtRijen(id, waarde) {
-  const rijen = alleBuurten().map((b) => ({ ...b, v: waarde(b) })).sort((a, b) => (a.v ?? 999) - (b.v ?? 999));
+function buurtRijen(id, waarde, hoogsteEerst = false) {
+  const rijen = alleBuurten()
+    .map((b) => ({ ...b, v: waarde(b) }))
+    .sort((a, b) => (hoogsteEerst ? (b.v ?? -1) - (a.v ?? -1) : (a.v ?? 999) - (b.v ?? 999)));
   document.getElementById(id).innerHTML = rijen
     .map((b) => `<tr data-koppel="${sleutel("buurt", b.naam)}"><td>${b.naam}</td><td>${GEBIED[b.gebied]}</td><td class="getal">${fmt(b.woonadressen)}</td><td class="getal">${fmt(b.inwoners)}</td><td>${balk(b.v)}</td></tr>`)
     .join("");
@@ -467,8 +587,9 @@ function bediening() {
     <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen de uitkomsten ver uit elkaar, dan bepaalt de grens het beeld.</p>
     <div id="bed-gevoelig"></div>
     <h4 style="margin-top:22px">Per buurt</h4>
-    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt.</p>
-    ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, haltePunten)}
+    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt.${OK ? " Kies <i>Loopgebied van de haltes</i> om te zien waar dat aandeel vandaan komt: gekleurd is binnen loopafstand van zo’n halte, wit niet." : ""}</p>
+    ${laagKnoppen("bed-kaart")}${loopLegenda("bed-kaart")}
+    ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, (xy) => zonePaden(xy) + haltePunten(xy))}
     ${buurtTabelKop("bed-buurten", "Goed bediend")}
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
     <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.</p>
@@ -498,6 +619,21 @@ function tekenBediening() {
     c.dataset.tip = `${h.naam} (${h.modi.join(", ")}): beste lijn ${fmt(v, 1)} per uur per richting, ${dd}${haalt ? "" : " — haalt de norm niet"}`;
   });
   buurtRijen("bed-buurten", bediendPct);
+  if (OK) {
+    toonZones("bed-kaart", zoneBediend);
+    const knopen = OK.zones.filter((z) => z.z1000).map((z) => z.naam);
+    zetWaarde("bed-kaart-loop-tekst", `Binnen loopafstand van een halte waar ${OVN.interval(S_OV.perUur)} iets vertrekt, ${dd}. Bus en tram: ${MZ().loopHalteM} m, metro en trein: ${MZ().loopMetroTreinM} m${knopen.length ? `, rond ${knopen.join(" en ")} alle lijnen 1 km` : ""}.`);
+  }
+  toonBuurtkaart();
+}
+
+// Zelfde regel als de frequentie per adres: bus en tram tot 500 m, metro en trein tot 800 m,
+// en bij een grote knoop alle lijnen tot 1 km.
+function zoneBediend(z, soort) {
+  const [busTram, metroTrein] = z[S_OV.dagdeel];
+  const beste = Math.max(busTram, metroTrein);
+  if (z.z1000) return soort === "z1000" && beste >= S_OV.perUur;
+  return soort === "z800" ? metroTrein >= S_OV.perUur : soort === "z500" && beste >= S_OV.perUur;
 }
 
 NA_RENDER.push(function bedieningSchuifjes() {
@@ -560,11 +696,19 @@ function haltedekking() {
       <div class="ijk">Loopafstand over de looproutes. Ter vergelijking: de gangbare 400 m hemelsbreed is ongeveer 500 m lopen; ouderen geven de voorkeur aan 200 tot 300 m; voor snel en frequent OV vindt de MRDH 600 tot 800 m aanvaardbaar. <a href="https://github.com/WKSu/prototype-opgaven/blob/main/docs/loopafstanden.md">Onderbouwing</a>.</div>
     </div>
     <div id="dek-strip"></div>
+    ${inzet()}
     <h4 style="margin-top:18px">Per buurt</h4>
-    ${buurtKaart("dek-kaart", "Woonadressen binnen loopafstand", DEKKING_KL, gedektPct, gedektHover)}
+    ${OK ? `<p style="font-size:13.5px">Kies <i>Loopgebied van de haltes</i> om te zien welke plekken binnen loopafstand liggen. Dat kan alleen bij ${MZ().loopHalteM} en ${MZ().loopMetroTreinM} m; bij een andere afstand toont de kaart alleen de buurten.</p>` : ""}
+    ${laagKnoppen("dek-kaart")}${loopLegenda("dek-kaart")}
+    ${buurtKaart("dek-kaart", "Woonadressen binnen loopafstand", DEKKING_KL, gedektPct, gedektHover, zonePaden)}
     ${buurtTabelKop("dek-buurten", "Binnen loopafstand")}
-    <div class="foot">Naar de dichtstbijzijnde halte, ongeacht hoe vaak er iets rijdt. Woonadressen zijn adressen in panden met een woonfunctie. Buurten met weinig adressen geven grote sprongen. ${ovBron()}</div>`;
+    <div class="foot">Naar de dichtstbijzijnde halte, ongeacht hoe vaak er iets rijdt. Woonadressen zijn adressen in panden met een woonfunctie. Buurten met weinig adressen geven grote sprongen.${OK ? ` Het loopgebied is een benadering van de meting per adres: 98% van de woningen die meetellen ligt erin, en aan de randen valt ongeveer 1 op de 10 woningen die net niet meetellen er ook in. De loopgebieden van ${MZ().loopHalteM} m komen uit de verkenner; die van ${MZ().loopMetroTreinM} m rond metro- en treinstations zijn over hetzelfde looproutenetwerk uitgerekend.` : ""} ${ovBron()}</div>`;
 }
+
+// Haltedekking: bus en tram tot 500 m, metro en trein tot 800 m. Alleen die twee afstanden
+// zijn als vlak getekend.
+const zoneGedekt = (z, soort) => soort === "z800" || (soort === "z500" && z.modi.some((m) => m === "bus" || m === "tram"));
+const dekkingOpZones = () => S_OV.loopBusTramM === MZ().loopHalteM && S_OV.loopMetroTreinM === MZ().loopMetroTreinM;
 
 function tekenDekking() {
   zetWaarde("dek-bus-w", `${S_OV.loopBusTramM} m`);
@@ -574,6 +718,16 @@ function tekenDekking() {
   );
   kleurKaart("dek-kaart", DEKKING_KL, gedektPct, gedektHover);
   buurtRijen("dek-buurten", gedektPct);
+  if (OK) {
+    toonZones("dek-kaart", zoneGedekt);
+    zetWaarde("dek-kaart-loop-tekst", `Binnen ${MZ().loopHalteM} m lopen van een bus- of tramhalte of ${MZ().loopMetroTreinM} m van een metro- of treinstation.`);
+    // Bij een andere afstand klopt het vlak niet meer met het cijfer: dan alleen de buurten.
+    const knop = document.querySelector('.knoppen.laag[data-kaart="dek-kaart"] [data-laag="loop"]');
+    knop.disabled = !dekkingOpZones();
+    knop.title = knop.disabled ? `Alleen bij ${MZ().loopHalteM} en ${MZ().loopMetroTreinM} m` : "";
+    if (knop.disabled) zetLaag("dek-kaart", "buurt");
+  }
+  toonBuurtkaart();
 }
 
 NA_RENDER.push(function dekkingSchuifjes() {
@@ -630,12 +784,44 @@ function vervoersmix() {
   return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).vervoersmix.aandeel, 1)}%`, `van de woonadressen in ${g.naam} heeft twee of meer OV-soorten op loopafstand`, ""]))}
     <h4 style="margin-top:18px">Hoeveel soorten OV op loopafstand?</h4>
     ${verdelingTabel("Soorten OV", SOORTEN, (c) => mz(c).vervoersmix.verdeling)}
-    ${buurtKaart("mix-kaart", "Twee of meer OV-soorten op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.mix ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
+    <h4 style="margin-top:22px">Per buurt</h4>
+    <p style="font-size:13.5px">Hoe donkerder de buurt, hoe meer woningen twee of meer soorten OV op loopafstand hebben. De punten zijn de haltes, in de kleur van hun soort: zo zie je welke soort ergens ontbreekt.</p>
+    ${buurtKaart("mix-kaart", "Twee of meer OV-soorten op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.mix ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen heeft twee of meer soorten OV op loopafstand`}`, modusPunten)}
+    ${modusLegenda()}
     ${buurtTabel("mix", "Twee of meer soorten", false)}
     <div class="foot">${reikwijdte()} Buurten met weinig adressen geven grote sprongen. ${ovBron()}</div>`;
 }
 
 const RICHTINGEN = ["geen bruikbare lijn", "één windrichting", "twee windrichtingen", "drie windrichtingen", "alle vier"];
+
+// Gebied Rotterdam Centrum en de bruikbare lijnen die in het rayon meetellen (minstens 1% van
+// de woningen van een gebied). Lijnen door het centrum eerst, zodat die eromheen bovenop liggen.
+function richtingLaag(xy) {
+  const ids = [...new Set(F.gebieden.flatMap((g) => mz(g.code).richting.lijnen.filter((l) => l.bereik >= 1).map((l) => l.id)))]
+    .filter((id) => OK.lijnen[id])
+    .sort((a, b) => D.ov.lijnen[a].tangentieel - D.ov.lijnen[b].tangentieel);
+  const c = vlakGeo(OK.centrum.vlak).coordinates.flat(2).map(xy);
+  const [lx, ly] = [c.reduce((a, p) => a + p[0], 0) / c.length, c.reduce((a, p) => a + p[1], 0) / c.length];
+  return `<defs><pattern id="centrum-arcering" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--wit)"/><rect width="1.4" height="6" fill="var(--stil)"/></pattern></defs>
+    <path class="centrum" d="${vlakPad(xy, OK.centrum.vlak)}"></path><text x="${lx.toFixed(0)}" y="${ly.toFixed(0)}" text-anchor="middle">${OK.centrum.naam}</text>
+    <g class="lijnen">${ids
+      .map((id) => {
+        const l = D.ov.lijnen[id];
+        return `<path class="lijn ${l.tangentieel ? "tang" : "radiaal"}" d="${lijnPad(xy, OK.lijnen[id])}" data-lijn="${id}" data-koppel="${sleutel("lijn", id)}" data-tip="${attr(lijnTip(l))}"></path>`;
+      })
+      .join("")}</g>`;
+}
+// Wijs je een buurt aan, dan blijven alleen de bruikbare lijnen op loopafstand van die buurt
+// staan: zo zie je waarom de buurt licht of donker is.
+const bruikbareLijnen = (b) => new Set((b?.lijnen || []).filter((r) => r[3] >= MZ().bruikbaarDal).map((r) => String(r[0])));
+BIJ_MARKEER.push(function lijnenVanBuurt(keys) {
+  const svg = document.getElementById("tang-kaart");
+  if (!svg) return;
+  const k = keys.find((x) => x.startsWith("buurt:"));
+  const zichtbaar = k ? bruikbareLijnen(alleBuurten().find((b) => sleutel("buurt", b.naam) === k)) : null;
+  svg.querySelectorAll(".lijn").forEach((p) => p.classList.toggle("gedimd", !!zichtbaar && !zichtbaar.has(p.dataset.lijn)));
+});
+
 function richtingCheck() {
   const lijsten = F.gebieden
     .map((g) => {
@@ -643,7 +829,7 @@ function richtingCheck() {
       const tang = ls.filter((l) => l.tangentieel);
       return `<details><summary>${g.naam}: ${tang.length} van ${ls.length} lijnen tangentieel</summary><div class="scroll"><table class="data" style="min-width:560px">
         <thead><tr><th>Lijn</th><th>Soort</th><th>Traject</th><th>Rijdt door het centrum</th><th>Bereikt</th></tr></thead><tbody>
-        ${[...tang, ...ls.filter((l) => !l.tangentieel)].map((l) => `<tr><td>${l.lijn}</td><td>${l.modus}</td><td>${l.traject && l.traject !== "lijn" ? l.traject : "–"}</td><td>${l.zonderGeometrie ? "onbekend" : l.tangentieel ? "nee" : "ja"}</td><td>${balk(l.bereik)}</td></tr>`).join("")}
+        ${[...tang, ...ls.filter((l) => !l.tangentieel)].map((l) => `<tr data-koppel="${sleutel("lijn", l.id)}"><td>${l.lijn}</td><td>${l.modus}</td><td>${l.traject && l.traject !== "lijn" ? l.traject : "–"}</td><td>${l.zonderGeometrie ? "onbekend" : l.tangentieel ? "nee" : "ja"}</td><td>${balk(l.bereik)}</td></tr>`).join("")}
         </tbody></table></div></details>`;
     })
     .join("");
@@ -655,7 +841,18 @@ function richtingCheck() {
     <h4 style="margin-top:22px">In hoeveel windrichtingen vertrek je vanaf je voordeur?</h4>
     <p style="font-size:13.5px">Naar welke windrichtingen (noord, oost, zuid, west) de lijnen bij je in de buurt vertrekken. Lees dit samen met de tabel hierboven: veel windrichtingen maar weinig lijnen om het centrum heen betekent dat de lijnen alle kanten op vertrekken, maar toch via het centrum rijden.</p>
     ${verdelingTabel("Windrichtingen", RICHTINGEN, (c) => mz(c).richting.windrichtingen)}
-    ${buurtKaart("tang-kaart", "Tangentiële lijn op loopafstand", AANDEEL_KL, (b) => mzBuurt(b)?.tangentieel ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
+    <h4 style="margin-top:22px">Per buurt, met de lijnen</h4>
+    <p style="font-size:13.5px">Hoe donkerder de buurt, hoe meer woningen een lijn om het centrum heen op loopafstand hebben. ${OK ? "Doorgetrokken: de lijnen die om het centrum heen rijden; gestippeld: de lijnen erdoor. Wijs een buurt aan om alleen zijn lijnen te zien, of een lijn om hem in de tabellen terug te vinden." : ""}</p>
+    ${buurtKaart(
+      "tang-kaart",
+      "Tangentiële lijn op loopafstand",
+      AANDEEL_KL,
+      (b) => mzBuurt(b)?.tangentieel ?? null,
+      (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen heeft een lijn om het centrum heen op loopafstand`}`,
+      OK ? richtingLaag : undefined,
+      OK ? [{ geometrie: vlakGeo(OK.centrum.vlak) }] : []
+    )}
+    ${OK ? `<div class="legenda-rij"><span><i class="streep"></i>rijdt om het centrum heen</span><span><i class="streep stippel"></i>rijdt door het centrum</span><span><i class="arcering"></i>gebied ${OK.centrum.naam}</span></div>` : ""}
     ${buurtTabel("tangentieel", "Tangentiële lijn op loopafstand", false)}
     <div class="foot">Om het centrum heen (tangentieel): de lijn komt niet in gebied Rotterdam Centrum. Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is.${zonder.length ? ` Zonder route bekend: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${ovBron()}</div>`;
 }
@@ -671,10 +868,137 @@ function storingstest() {
     <h4 style="margin-top:18px">De drie zwaarste storingen per gebied</h4>
     <p style="font-size:13.5px">Per verbinding: het aandeel woningen dat geen bruikbare lijn op loopafstand overhoudt als die uitvalt. Woningen die nu al geen bruikbare lijn hebben, tellen niet mee: ${F.gebieden.map((g) => `${g.naam} ${fmt(mz(g.code).zonderBruikbaar, 1)}%`).join(", ")}.</p>
     <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Gebied</th><th>Verbinding valt uit</th><th>Woningen zonder OV</th></tr></thead><tbody>${rijen}</tbody></table></div>
-    ${buurtKaart("verlies-kaart", "Verliest bruikbaar OV bij de zwaarste storing van het gebied", VERLIES_KL, (b) => mzBuurt(b)?.verlies ?? null, (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : fmt(v, 1) + "%"}`)}
-    ${buurtTabel("verlies", "Verliest OV bij de zwaarste storing van het gebied", true)}
-    <div class="foot">Een verbinding is een lijn samen met de lijnen die de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. ${reikwijdte()} ${ovBron()}</div>`;
+    <h4 style="margin-top:22px">Zet een verbinding op zwart</h4>
+    <p style="font-size:13.5px">Kies een verbinding: de kaart laat zien welke buurten dan zonder bruikbaar OV komen te zitten, en waar de verbinding loopt.</p>
+    <div class="normen"><label>Valt uit: <select id="storing-keuze"><option value="">de zwaarste verbinding van elk gebied</option>${STORING()
+      .map((c, i) => `<option value="${i}">${c.corridor} (${fmt(c.woonadressen)} woningen)</option>`)
+      .join("")}</select></label><div class="ijk" id="storing-uitleg"></div></div>
+    ${buurtKaart("verlies-kaart", "Verliest bruikbaar OV", VERLIES_KL, storingPct, storingHover, OK ? storingLaag : undefined)}
+    ${OK ? `<div class="legenda-rij"><span><i class="streep"></i>de verbinding die uitvalt</span></div>` : ""}
+    ${buurtTabelKop("storing-buurten", "Verliest bruikbaar OV")}
+    <div class="foot">Een verbinding is een lijn samen met de lijnen van dezelfde soort die de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. Alleen verbindingen waar in het rayon woningen van afhangen. ${reikwijdte()} ${ovBron()}</div>`;
 }
+
+const STORING = () => D.ov.meerzijdig.storing;
+const gekozenStoring = () => (S_OV.storing === "" ? null : STORING()[S_OV.storing]);
+function storingPct(b) {
+  if (!b.woonadressen) return null;
+  const c = gekozenStoring();
+  return c ? c.perBuurt[b.naam] || 0 : mzBuurt(b)?.verlies ?? null;
+}
+function storingHover(b, v) {
+  const c = gekozenStoring();
+  const wanneer = c ? `als ${c.corridor} uitvalt` : `bij de zwaarste storing van ${GEBIED[b.gebied]} (${mz(b.gebied).storing.corridors[0].corridor})`;
+  return `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen verliest bruikbaar OV ${wanneer}`}`;
+}
+// Per verbinding een groep met zijn lijnen; de kiezer zet er één aan.
+const storingLaag = (xy) =>
+  STORING()
+    .map((c, i) => `<g class="storing uit" data-corridor="${i}">${c.lijnen
+      .filter((id) => OK.lijnen[id])
+      .map((id) => `<path class="lijn tang" d="${lijnPad(xy, OK.lijnen[id])}" data-tip="${attr(lijnTip(D.ov.lijnen[id]))}"></path>`)
+      .join("")}</g>`)
+    .join("");
+
+function tekenStoring() {
+  const c = gekozenStoring();
+  zetWaarde(
+    "storing-uitleg",
+    c
+      ? `Valt ${c.corridor} uit, dan houden ${fmt(c.woonadressen)} woningen in het rayon geen bruikbare lijn op loopafstand: ${F.gebieden.map((g) => `${fmt(c.verlies[g.code], 1)}% in ${g.naam}`).join(", ")}.`
+      : `Elk gebied met zijn eigen zwaarste verbinding: ${F.gebieden.map((g) => `${mz(g.code).storing.corridors[0].corridor} in ${g.naam}`).join(", ")}.`
+  );
+  kleurKaart("verlies-kaart", VERLIES_KL, storingPct, storingHover);
+  document.querySelectorAll("#verlies-kaart [data-corridor]").forEach((g) => g.classList.toggle("uit", g.dataset.corridor !== String(S_OV.storing)));
+  buurtRijen("storing-buurten", storingPct, true);
+}
+
+NA_RENDER.push(function storingKiezer() {
+  const keuze = document.getElementById("storing-keuze");
+  if (!keuze) return;
+  keuze.onchange = () => {
+    S_OV.storing = keuze.value;
+    tekenStoring();
+  };
+  tekenStoring();
+});
+
+/* ---------- buurtkaart: alle OV-cijfers van één buurt ---------- */
+
+// Kies je een buurt (klik op een kaart of in een tabel, of in de buurtkiezer bovenaan), dan
+// opent rechtsonder een kaartje met de cijfers van die buurt bij de huidige instellingen, en de
+// lijnen op loopafstand. Het volgt de schuifjes.
+let buurtKeuze = null;
+
+function buurtProfiel(naam) {
+  const b = alleBuurten().find((x) => x.naam === naam);
+  if (!b) return "";
+  const m = mzBuurt(b);
+  const [verlies, corridor] = STORING().map((c) => [c.perBuurt[naam] || 0, c.corridor]).sort((x, y) => y[0] - x[0])[0] || [0, null];
+  const dd = D.ov.bediening.dagdelen[S_OV.dagdeel];
+  const cijfers = [
+    [`${hoofdletter(OVN.interval(S_OV.perUur))} een vertrek, ${dd}`, bediendPct(b), "ov-frequentie"],
+    [`Binnen ${S_OV.loopBusTramM} m van bus of tram, of ${S_OV.loopMetroTreinM} m van metro of trein`, gedektPct(b), "ov-haltedekking"],
+    ["Twee of meer soorten OV op loopafstand", m?.mix, "ov-vervoersmix"],
+    ["Een lijn om het centrum heen", m?.tangentieel, "ov-richting"],
+    [verlies ? `Geen OV meer als ${corridor} uitvalt (de zwaarste storing voor deze buurt)` : "Geen OV meer bij één storing", b.woonadressen ? verlies : null, "ov-storing"],
+  ];
+  const lijnen = b.lijnen.map(([id, aandeel, ...f]) => ({ id, aandeel, f, l: D.ov.lijnen[id] }));
+  return `<div class="bk-kop"><div><div class="eyebrow">Buurt</div><h3>${b.naam}</h3>
+      <span class="toel">${GEBIED[b.gebied]} · ${fmt(b.woonadressen)} woonadressen · ${fmt(b.inwoners)} inwoners</span></div>
+      <button type="button" class="sluit" aria-label="Buurt sluiten">×</button></div>
+    ${b.woonadressen ? "" : `<p class="toel" style="margin-top:8px">Geen woonadressen: de OV-cijfers gaan over woningen.</p>`}
+    <table class="data bk-cijfers"><thead><tr><th>Van de woningen</th><th class="getal">Aandeel</th></tr></thead><tbody>${cijfers
+      .map(([t, v, s]) => `<tr><td><a href="#i-${s}">${t}</a></td><td class="getal">${v == null ? "–" : `${fmt(v, 1)}%`}</td></tr>`)
+      .join("")}</tbody></table>
+    ${lijnen.length
+      ? `<h4>Lijnen op loopafstand</h4>
+    <table class="data"><thead><tr><th>Lijn</th><th class="getal">Woningen</th><th class="getal">Spits</th><th class="getal">Dal</th><th class="getal">Avond</th></tr></thead><tbody>${lijnen
+      .map(({ id, aandeel, f, l }) => `<tr data-koppel="${sleutel("lijn", id)}"${f[1] < MZ().bruikbaarDal ? ' class="dun"' : ""} title="${attr(lijnTip(l))}">
+        <td>${lijnNaam(l)}<span class="toel">${l.zonderGeometrie ? "route onbekend" : l.tangentieel ? "om het centrum heen" : "door het centrum"}</span></td>
+        <td class="getal">${fmt(aandeel, 0)}%</td>${f.map((x) => `<td class="getal">${fmt(x, x % 1 ? 1 : 0)}</td>`).join("")}</tr>`)
+      .join("")}</tbody></table>
+    <p class="foot">Woningen: aandeel van de woonadressen in de buurt met de lijn op loopafstand (alleen lijnen vanaf ${fmt(MZ().lijnMinPct)}%). Spits, dal en avond: vertrekken per uur per richting aan de beste halte. Grijs: overdag minder dan elk half uur; telt niet mee als bruikbare lijn.</p>`
+      : ""}`;
+}
+
+function toonBuurtkaart() {
+  const el = document.getElementById("buurtkaart");
+  if (!el) return;
+  el.hidden = !buurtKeuze;
+  if (buurtKeuze) el.innerHTML = veilig("buurtkaart", () => buurtProfiel(buurtKeuze));
+  const kiezer = document.getElementById("buurt-keuze");
+  if (kiezer) kiezer.value = buurtKeuze || "";
+}
+BIJ_VASTZETTEN.push(function buurtkaartVolgt(keys) {
+  const k = keys.find((x) => x.startsWith("buurt:"));
+  buurtKeuze = (k && alleBuurten().find((b) => sleutel("buurt", b.naam) === k)?.naam) || null;
+  toonBuurtkaart();
+});
+
+const buurtKiezer = () =>
+  `<div class="buurtkiezer"><label>Kijk naar één buurt <select id="buurt-keuze"><option value="">kies een buurt</option>${F.gebieden
+    .map((g) => `<optgroup label="${attr(g.naam)}">${ov(g.code)
+      .buurten.filter((b) => b.woonadressen)
+      .map((b) => b.naam)
+      .sort((a, b) => a.localeCompare(b, "nl"))
+      .map((n) => `<option value="${attr(n)}">${n}</option>`)
+      .join("")}</optgroup>`)
+    .join("")}</select></label>
+    <span class="toel">Of klik een buurt op een kaart of in een tabel. Alle kaarten tonen dan die buurt, en een kaartje vat zijn cijfers samen.</span></div>`;
+
+NA_RENDER.push(function buurtkaartOpbouw() {
+  const kiezer = document.getElementById("buurt-keuze");
+  if (!kiezer) return;
+  const el = document.createElement("aside");
+  el.id = "buurtkaart";
+  el.className = "buurtkaart";
+  el.hidden = true;
+  el.setAttribute("aria-label", "Cijfers van de gekozen buurt");
+  document.body.appendChild(el);
+  el.addEventListener("click", (e) => e.target.closest(".sluit") && zetVast([]));
+  kiezer.onchange = () => zetVast(kiezer.value ? [sleutel("buurt", kiezer.value)] : []);
+});
 
 /* ---------- rapportcijfer ---------- */
 
@@ -922,6 +1246,13 @@ function markeer(keys) {
       (knip && knip !== svg ? knip : svg).appendChild(o);
     });
   });
+  BIJ_MARKEER.forEach((fn) => fn(keys));
+}
+
+function zetVast(keys) {
+  vastgezet = keys;
+  markeer(vastgezet);
+  BIJ_VASTZETTEN.forEach((fn) => fn(vastgezet));
 }
 
 let label;
@@ -962,12 +1293,13 @@ function koppel() {
     if (v) toonLabel(v, e.clientX, e.clientY);
   });
   document.addEventListener("click", (e) => {
+    // In de buurtkaart wijst een lijn alleen aan; klikken zou de buurt loslaten.
+    if (e.target.closest(".buurtkaart")) return;
     const r = e.target.closest("tr[data-koppel]");
     const v = e.target.closest("svg.kaart-svg [data-koppel]");
     if (!r && !v) return;
     const keys = r ? sleutels(r) : sleutels(v).slice(0, 1);
-    vastgezet = vastgezet.join() === keys.join() ? [] : keys;
-    markeer(vastgezet);
+    zetVast(vastgezet.join() === keys.join() ? [] : keys);
     // Op een telefoon is er geen hover: toon het label bij de tik.
     if (v && v.dataset.tip) toonLabel(v, e.clientX, e.clientY);
     // Vanuit een rij: haal de kaart van hetzelfde blok in beeld als hij buiten beeld is.
@@ -1020,6 +1352,8 @@ const INTRO = {
   parkeren: "Hoe vol staan straten en stallingen, hoe tevreden zijn bewoners, en hoeveel ruimte kost parkeren? Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. De cijfers staan hier zonder normen; het oordeel staat in het overzicht.",
   ov: "Hoe goed worden de woningen bediend door bus, tram, metro en trein? Het gaat om het aanbod volgens de dienstregeling, niet om gebruik of stiptheid. Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. Normen voor frequentie en loopafstand zijn in te stellen.",
 };
+// Alleen de OV-viewer heeft cijfers per buurt voor elke indicator.
+const KIEZER = { ov: () => buurtKiezer() };
 
 function pagina() {
   const inds = THEMA.indicatoren;
@@ -1029,6 +1363,7 @@ function pagina() {
       <div class="eyebrow">Rayon ${F.rayon.naam}</div>
       <h1>${THEMA.naam}</h1>
       <p class="lead">${INTRO[THEMA.sleutel]}</p>
+      ${KIEZER[THEMA.sleutel] ? veilig("buurtkiezer", KIEZER[THEMA.sleutel]) : ""}
       <ol class="inhoudsopgave">${inds
         .map((i) => `<li><a href="#i-${i.sleutel}">${i.naam}</a> ${statusChip(i.datalade.status)}<span class="tocvraag">${i.vraag}</span></li>`)
         .join("")}</ol>
