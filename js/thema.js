@@ -14,6 +14,9 @@ const P = typeof PARKEERDRUK !== "undefined" ? PARKEERDRUK : null;
 const RC = typeof RAPPORTCIJFER !== "undefined" ? RAPPORTCIJFER : null;
 const RB = typeof RUIMTEBESLAG !== "undefined" ? RUIMTEBESLAG : null;
 const FP = typeof FIETSPARKEREN !== "undefined" ? FIETSPARKEREN : null;
+// Context voor parkeren, geen indicator: woningbouwprognose (BoPro) en P+R-capaciteit (NPR).
+const WB = typeof WONINGBOUW !== "undefined" ? WONINGBOUW : null;
+const PRR = typeof PR !== "undefined" ? PR : null;
 const THEMA = F && F.themas.find((t) => t.sleutel === document.body.dataset.thema);
 // Extra gebieden (de Spaanse Polder) staan in de parkeertelling, niet in het rayon: wel op de
 // kaart en in de tabellen, niet in de gebiedscijfers van het overzicht.
@@ -1198,6 +1201,120 @@ function fietsparkeren() {
     <div class="foot">${FP.bron}. Rekenregel: ${FP.regel}. Maatgevend: ${FP.maatgevend}. Alleen subbuurten met woonadressen tellen mee in de gebiedscijfers.</div>`;
 }
 
+/* ---------- woningbouw en P+R (context, geen indicator) ---------- */
+
+// Meters tussen twee punten in WGS84; op deze schaal volstaat een vlakke benadering.
+const meters = (a, b) => {
+  const k = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
+  return Math.hypot((a[0] - b[0]) * k * 111320, (a[1] - b[1]) * 110540);
+};
+const naaste = (p, lijst) => lijst.reduce((best, x) => { const m = meters(p, x.pt); return !best || m < best.m ? { ...x, m } : best; }, null);
+// Hoe zekerder het project, hoe donkerder de stip.
+const WB_TINT = { GESTART: 90, HARDE_PLANVOORRAAD: 60, ZACHTE_PLANVOORRAAD: 32, STUDIE: 12 };
+
+function woningbouwProjecten() {
+  const kaart = Object.fromEntries(D.parkeren.subbuurten.kaart.map((k) => [k.code, k]));
+  const druk = Object.fromEntries((P ? P.subbuurten : []).map((s) => [s.code, s]));
+  const knopen = D.gebieden.flatMap((g) => D.ov.perGebied[g].haltes.filter((h) => h.modi.some((m) => m === "metro" || m === "trein")).map((h) => ({ naam: h.naam, pt: [h.lon, h.lat] })));
+  const prs = (PRR ? PRR.terreinen : []).map((t) => ({ ...t, pt: [t.lon, t.lat] }));
+  return WB.projecten
+    .filter((p) => p.status !== "OPGELEVERD")
+    .map((p) => {
+      const pt = [p.lon, p.lat];
+      const s = druk[p.subbuurt], k = kaart[p.subbuurt];
+      return {
+        ...p,
+        druk: s ? s.druk : null,
+        autobezit: k ? k.autosPerWoonadres : null,
+        // Ruwe orde van grootte: zoveel auto's als de buurt nu per woonadres heeft. Geen norm.
+        autos: k && k.autosPerWoonadres != null ? p.woningen * k.autosPerWoonadres : null,
+        knoop: knopen.length ? naaste(pt, knopen) : null,
+        pr: prs.length ? naaste(pt, prs) : null,
+      };
+    });
+}
+
+function woningbouwKaart(projecten) {
+  const kaart = D.parkeren.subbuurten.kaart;
+  const W = 800;
+  const { xy, hoogte, ondergrond } = projectie(kaart, W);
+  const pad = padVan(xy);
+  const druk = Object.fromEntries((P ? P.subbuurten : []).map((s) => [s.code, s.druk]));
+  const vlakken = kaart.map((k) => `<path d="${pad(k.geometrie)}" fill="${druk[k.code] != null ? drukKleur(druk[k.code]) : "var(--beton-diep)"}" style="pointer-events:none"/>`).join("");
+  const stippen = [...projecten]
+    .sort((a, b) => b.woningen - a.woningen)
+    .map((p) => {
+      const [x, y] = xy([p.lon, p.lat]);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${Math.max(2.5, Math.sqrt(p.woningen) * 0.7).toFixed(1)}" style="fill:color-mix(in srgb, var(--asfalt) ${WB_TINT[p.status]}%, var(--wit));stroke:var(--asfalt);stroke-width:.8"><title>${p.naam}: ${fmt(p.woningen)} woningen, ${WB.statussen[p.status]}, oplevering ${p.jaar ?? "onbekend"}</title></circle>`;
+    })
+    .join("");
+  const pr = (PRR ? PRR.terreinen : [])
+    .map((t) => {
+      const [x, y] = xy([t.lon, t.lat]);
+      return `<g><rect x="${(x - 6).toFixed(1)}" y="${(y - 6).toFixed(1)}" width="12" height="12" rx="2" style="fill:var(--schie);stroke:var(--wit);stroke-width:1.2"><title>${t.naam}: ${fmt(t.capaciteit)} plekken (NPR)</title></rect><text x="${(x + 9).toFixed(1)}" y="${(y + 4).toFixed(1)}" style="font-size:10.5px;font-weight:700">${fmt(t.capaciteit)}</text></g>`;
+    })
+    .join("");
+  const legenda =
+    Object.entries(WB_TINT).map(([s, t]) => `<span><i style="border-radius:50%;width:10px;background:color-mix(in srgb, var(--asfalt) ${t}%, var(--wit));border-color:var(--asfalt)"></i>${WB.statussen[s]}</span>`).join("") +
+    `<span><i style="background:var(--schie);border-radius:2px;width:10px"></i>P+R, met capaciteit</span><span>vlakken: parkeerdruk werkdagnacht, zelfde klassen als hierboven</span>`;
+  return `<div class="legenda-rij"><b>Woningbouw (stip naar aantal woningen) en P+R</b>${legenda}</div>
+    <svg class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart van geplande woningbouw, parkeerdruk per subbuurt en P+R-terreinen">${ondergrond}${sluier(kaart, pad, W, hoogte)}${vlakken}${stippen}${pr}${gebiedLabels(kaart, xy)}${bronvermelding(W, hoogte)}</svg>`;
+}
+
+function woningbouwTabel(rijen) {
+  return `<div class="scroll"><table class="data" style="min-width:820px"><thead><tr><th>Project</th><th>Fase</th><th class="getal">Woningen</th><th class="getal">Sociaal</th><th class="getal">Parkeerdruk subbuurt</th><th class="getal">Auto’s per woonadres</th><th class="getal">Auto’s bij huidig autobezit</th><th>Metro of trein</th><th>Naaste P+R</th></tr></thead><tbody>
+    ${rijen
+      .map((p) => `<tr><td>${p.naam}<div class="toel">${p.buurt}, ${GEBIED[p.gebied]}</div></td><td>${WB.statussen[p.status]}<div class="toel">oplevering ${p.jaar ?? "onbekend"}</div></td>
+        <td class="getal">${fmt(p.woningen)}</td><td class="getal">${p.woningen ? fmt((100 * p.sociaal) / p.woningen) + "%" : "–"}</td>
+        <td class="getal">${p.druk == null ? '<span class="toel">niet geteld</span>' : fmt(p.druk, 1) + "%"}</td><td class="getal">${fmt(p.autobezit, 2)}</td><td class="getal">${p.autos == null ? "–" : "~" + fmt(Math.round(p.autos / 10) * 10)}</td>
+        <td>${p.knoop ? `${p.knoop.naam}<div class="toel">${fmt(Math.round(p.knoop.m / 50) * 50)} m</div>` : "–"}</td><td>${p.pr ? `${p.pr.naam.replace(/^P\+R /, "")}<div class="toel">${fmt(Math.round(p.pr.m / 100) * 100)} m · ${fmt(p.pr.capaciteit)} plekken</div>` : "–"}</td></tr>`)
+      .join("")}</tbody></table></div>`;
+}
+
+function prTabel() {
+  const t = PRR.terreinen;
+  return `<div class="scroll"><table class="data" style="min-width:600px"><thead><tr><th>P+R</th><th class="getal">Plekken</th><th class="getal">Laadpunten</th><th>Ligging</th><th>NPR-gegevens</th></tr></thead><tbody>
+    ${t
+      .map((r) => `<tr><td>${r.naam}<div class="toel">${r.plaats}</div></td><td class="getal">${fmt(r.capaciteit)}</td><td class="getal">${fmt(r.laadpunten)}</td>
+        <td>${r.inRayon ? "in het rayon" : `${fmt(Math.round(r.afstandM / 50) * 50)} m buiten het rayon`}</td>
+        <td>capaciteit sinds ${r.specificatieVanaf}${r.verlopen ? ' <span class="toel">· registratie verlopen</span>' : ""}</td></tr>`)
+      .join("")}</tbody></table></div>`;
+}
+
+function woningbouwEnPR() {
+  const ps = woningbouwProjecten();
+  const knoopM = D.ov.meerzijdig.drempels.loopMetroTreinM;
+  const per = F.gebieden.map((g) => {
+    const x = ps.filter((p) => p.gebied === g.code);
+    const som = (f) => x.filter(f).reduce((a, p) => a + p.woningen, 0);
+    return { g, totaal: som(() => true), druk: som((p) => p.druk > 85), knoop: som((p) => p.knoop && p.knoop.m <= knoopM), zeker: som((p) => p.status === "GESTART" || p.status === "HARDE_PLANVOORRAAD") };
+  });
+  const groot = [...ps].sort((a, b) => b.woningen - a.woningen);
+  const prIn = PRR ? PRR.terreinen.filter((t) => t.inRayon) : [];
+  return `<section id="woningbouw" data-onderwerp="parkeren-woningbouw" data-label="Woningbouw en P+R">
+    <div class="eyebrow">Context · geen indicator</div>
+    <h2>Wat er op parkeren afkomt: woningbouw en P+R</h2>
+    <p class="def">Geen indicator, wel de vraagkant die eraan komt. Elke nieuwe woning vraagt parkeerruimte: op eigen terrein volgens de parkeernorm, of op straat. Waar de straat ’s nachts al boven 85% zit (het streven uit de nota), kan nieuwbouw niet op de straat leunen. Waar metro of trein op loopafstand ligt, is een lagere parkeernorm te verdedigen. En na de invoering van betaald parkeren is de P+R het opvangvermogen voor wie niet meer in de wijk parkeert.</p>
+    <div class="box"><h4>Woningbouw in de pijplijn (BoPro)</h4>
+      ${strip(per.map((x) => [fmt(x.totaal), `woningen gepland in ${x.g.naam}`, `${fmt(x.zeker)} in aanbouw of harde plancapaciteit · ${fmt(x.druk)} in subbuurten boven 85% · ${fmt(x.knoop)} binnen ${fmt(knoopM)} m van metro of trein`]))}
+      <h4 style="margin-top:18px">Waar komen de woningen, en hoe vol is de straat daar?</h4>
+      <p style="font-size:13.5px">Stip = project, oppervlak naar het aantal woningen, donkerder naarmate het zekerder is. Vlak = parkeerdruk op de werkdagnacht. Vierkant = P+R met capaciteit. Opgeleverde projecten staan er niet op.</p>
+      ${woningbouwKaart(ps)}
+      <h4 style="margin-top:22px">De 15 grootste projecten, naast parkeren</h4>
+      <p style="font-size:13.5px">‘Auto’s bij huidig autobezit’ is een orde van grootte: het aantal woningen maal het autobezit per woonadres in de subbuurt nu. Het is geen parkeernorm en geen prognose; het laat zien wat er op de straat afkomt als de nieuwe bewoners zich gedragen als de buurt.</p>
+      ${woningbouwTabel(groot.slice(0, 15))}
+      <details><summary>Alle ${ps.length} projecten in de pijplijn</summary>${woningbouwTabel(groot)}</details>
+      <div class="foot">${WB.bron}. Een project hoort bij de subbuurt waarin zijn middelpunt ligt. Fasen: ${Object.values(WB.statussen).slice(1).join(", ")}; zachte plancapaciteit en studie kunnen nog veranderen of vervallen. Metro en trein: haltes uit de datalade (GTFS). Bouwen met <code>scripts/bouw_woningbouw.py</code>.</div>
+    </div>
+    ${PRR ? `<div class="box"><h4>P+R in en rond het rayon (NPR)</h4>
+      <p style="font-size:13.5px">${prIn.length} P+R-terreinen in het rayon met samen ${fmt(prIn.reduce((a, t) => a + t.capaciteit, 0))} plekken, en ${PRR.terreinen.length - prIn.length} net erbuiten (tot ${fmt(PRR.straalM)} m). Na de invoering van betaald parkeren kan wie bij de metrohalte in de wijk parkeerde, hierheen uitwijken: dit is de capaciteit om dat op te vangen. Hoe vol de terreinen zijn, staat niet in het register.</p>
+      ${prTabel()}
+      <div class="foot">${PRR.bron}, opgehaald ${PRR.opgehaald}. Capaciteit uit de recentste specificatie per terrein; de datum laat zien hoe oud die is. ‘Registratie verlopen’: de geldigheid van het NPR-record is voorbij, het terrein kan er nog liggen. Ophalen met <code>scripts/haal_npr.py</code>.</div>
+    </div>` : ""}
+    <div class="nodig"><b>Nodig om dit scherper te maken</b>Bezetting per P+R (overdag, werkdag), de geplande parkeeroplossing per woningbouwproject (eigen terrein, garage, straat), en de parkeernorm die per project is toegepast.</div>
+  </section>`;
+}
+
 const ontbreektBestand = (bestand, script) =>
   `<div class="nodig"><b>Niet geladen</b><code>${bestand}</code> ontbreekt. Bouw het met <code>uv run ${script}</code>.</div>`;
 
@@ -1369,6 +1486,7 @@ function pagina() {
         .join("")}</ol>
     </section>
     ${inds.map(blok).join("")}
+    ${THEMA.sleutel === "parkeren" && WB ? veilig("woningbouw", woningbouwEnPR) : ""}
     <section id="nodig" data-onderwerp="${THEMA.sleutel}-nodig" data-label="Nog niet beschikbaar" data-review="tekst" data-review-vraag="Welke data kun je leveren, en wanneer?" style="border-bottom:0">
       <div class="eyebrow">Nog niet beschikbaar</div>
       <h2>Wat je hier nog niet ziet</h2>
