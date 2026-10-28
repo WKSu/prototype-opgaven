@@ -42,6 +42,14 @@ uv run scripts/bouw_ovkaart.py --datalade ../wksu/prototype-overschie \
     --loopbaarheid ../wksu/loopbaarheid-ov/index.html     # na bouw_datalade.py
 ```
 
+Het uurprofiel (vertrekken per uur) komt standaard uit de datalade, op de dinsdag waarop die
+gebouwd is. Dat kan een andere dag zijn dan die van de verkenner, waar de cijfers per adres op
+rusten; de viewer zegt het dan. Met `--gtfs <feed.zip>` rekent het script het uurprofiel zelf uit
+op de dag van de verkenner. De feed moet die dag dekken: een feed met nul of minder dan de helft
+van de vertrekken van de datalade wordt geweigerd, want dan ontbreekt een vervoerder. `--peildatum`
+kiest ter controle een andere dag (met `--peildatum` op de datalade-dag moet Overschie gelijk
+uitkomen).
+
 Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
 Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
 Daarna: `uvx ruff format scripts/ && uvx ruff check scripts/`.

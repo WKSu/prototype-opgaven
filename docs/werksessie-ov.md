@@ -122,8 +122,11 @@ geregeld zijn voor een storing (vervangend vervoer, een tweede lijn)?
 - **De buurtkaart noemt per lijn de beste halte binnen bereik.** In een grote buurt kan een
   bewoner aan de andere kant minder vaak een vertrek hebben.
 - **Twee dienstregelingen.** De cijfers per adres gaan uit van dinsdag 22 september 2026. Het
-  uurprofiel (vertrekken per uur) komt uit 11 augustus 2026, in de zomervakantie. Daar kan een
-  zomerdienstregeling in zitten.
+  uurprofiel (vertrekken per uur) komt uit dinsdag 11 augustus 2026, in de zomervakantie.
+  - Die dag reden tram en metro ongeveer een kwart minder dan in de dienstregeling die in juni
+    voor diezelfde dag gepland stond (tram −24%, metro −27%). Bus en trein reden gelijk.
+  - Lees het uurprofiel dus op de vorm van de dag, niet op de aantallen; de viewer zegt dat er
+    ook bij.
 - **Kleine buurten springen.** Noord Kethel (36 adressen) en Landzicht (198) geven grote
   percentages op weinig woningen.
 
