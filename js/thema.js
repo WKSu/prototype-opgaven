@@ -430,17 +430,78 @@ function haltedekking() {
     <div class="foot">Binnen ${dr.busTramM} m lopen van een bus- of tramhalte of ${dr.metroTreinM} m van een metro- of treinstation, over het looproutenetwerk (OSM). Woonadressen = adressen in panden met een woonfunctie; een gemengd pand telt met al zijn adressen mee. Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
 
-function lijnenPerGebied() {
-  return F.gebieden
+/* ---------- meerzijdige bereikbaarheid ---------- */
+
+const mz = (code) => ov(code).meerzijdig;
+const MZ = () => D.ov.meerzijdig.drempels;
+const reikwijdte = () =>
+  `Binnen loopafstand: ${MZ().loopHalteM} m lopen naar een bus- of tramhalte (1 km bij ${MZ().knopen1km.join(", ")}) of ${MZ().loopMetroTreinM} m naar een metro- of treinstation, over het looproutenetwerk. Een lijn telt mee bij minstens ${MZ().bruikbaarDal} vertrekken per uur per richting in het dal (9–16 uur). Bus en tram rekenen met 500 m in plaats van de 400 m van de haltedekking: de bron heeft per halte alleen adreslijsten tot 500 m. Woonadressen = adressen in panden met een woonfunctie.`;
+const balk = (v) => (v == null ? "–" : `<span class="staaf" style="width:${(v * 1.2).toFixed(0)}px"></span>${fmt(v, 1)}%`);
+
+// Verdeling van woonadressen over 0 tot 4 (soorten, windrichtingen), per gebied in kolommen.
+function verdelingTabel(kop, labels, waarden) {
+  return `<div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>${kop}</th>${F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("")}</tr></thead><tbody>
+    ${labels.map((l, k) => `<tr><td>${l}</td>${F.gebieden.map((g) => `<td class="getal">${fmt(waarden(g.code)[k], 1)}%</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+// Per buurt, de slechtste eerst: daar zit de opgave, niet in het gebiedsgemiddelde.
+function buurtTabel(veld, kop, hoogIsSlecht) {
+  const rijen = F.gebieden
+    .flatMap((g) => mz(g.code).perBuurt.map((b) => ({ ...b, gebied: g.naam })))
+    .sort((a, b) => (hoogIsSlecht ? b[veld] - a[veld] : a[veld] - b[veld]));
+  return `<h4 style="margin-top:18px">Per buurt, ${hoogIsSlecht ? "hoogste" : "laagste"} eerst</h4>
+    <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Buurt</th><th>Gebied</th><th class="getal">Woonadressen</th><th>${kop}</th></tr></thead><tbody>
+    ${rijen.map((b) => `<tr><td>${b.naam}</td><td>${b.gebied}</td><td class="getal">${fmt(b.woonadressen)}</td><td>${balk(b[veld])}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+const SOORTEN = ["geen bruikbare lijn", "één soort", "twee soorten", "drie soorten", "vier soorten"];
+function vervoersmix() {
+  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).vervoersmix.aandeel, 1)}%`, `van de woonadressen in ${g.naam} heeft twee of meer OV-soorten op loopafstand`, "datalade"]))}
+    <h4 style="margin-top:18px">Hoeveel soorten OV op loopafstand?</h4>
+    ${verdelingTabel("Soorten OV", SOORTEN, (c) => mz(c).vervoersmix.verdeling)}
+    ${buurtTabel("mix", "Twee of meer soorten", false)}
+    <div class="foot">${reikwijdte()} Buurten met weinig adressen geven grote sprongen. ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+}
+
+const RICHTINGEN = ["geen bruikbare lijn", "één windrichting", "twee windrichtingen", "drie windrichtingen", "alle vier"];
+function richtingCheck() {
+  const lijsten = F.gebieden
     .map((g) => {
-      const ls = ov(g.code).lijnen;
-      const perSoort = Object.entries(ls.reduce((a, l) => ((a[l.soort] = (a[l.soort] || 0) + 1), a), {})).map(([s, n]) => `${n} ${s}`).join(", ");
-      return `<details><summary>${g.naam}: ${ls.length} lijnen (${perSoort})</summary><div class="scroll"><table class="data" style="min-width:560px">
-        <thead><tr><th>Lijn</th><th>Soort</th><th>Traject</th><th class="getal">Ritten per dag</th><th class="getal">Laatste rit</th></tr></thead><tbody>
-        ${ls.map((l) => `<tr><td>${l.lijn}</td><td>${l.soort}</td><td>${l.traject}</td><td class="getal">${fmt(l.ritten)}</td><td class="getal">${(l.laatste || "–").slice(0, 5)}</td></tr>`).join("")}
+      const ls = mz(g.code).richting.lijnen.filter((l) => l.bereik >= 1);
+      const tang = ls.filter((l) => l.tangentieel);
+      return `<details><summary>${g.naam}: ${tang.length} van ${ls.length} lijnen tangentieel</summary><div class="scroll"><table class="data" style="min-width:560px">
+        <thead><tr><th>Lijn</th><th>Soort</th><th>Traject</th><th>Rijdt door het centrum</th><th>Bereikt</th></tr></thead><tbody>
+        ${[...tang, ...ls.filter((l) => !l.tangentieel)].map((l) => `<tr><td>${l.lijn}</td><td>${l.modus}</td><td>${l.traject && l.traject !== "lijn" ? l.traject : "–"}</td><td>${l.zonderGeometrie ? "onbekend" : l.tangentieel ? "nee" : "ja"}</td><td>${balk(l.bereik)}</td></tr>`).join("")}
         </tbody></table></div></details>`;
     })
-    .join("") + `<div class="foot">Lijnen die minstens één halte in of nabij het gebied aandoen, beide richtingen samen. ${ov(F.gebieden[0].code).gtfsBron}, peildatum ${ov(F.gebieden[0].code).gtfsPeildatum}. Bron: ${bronDatalade()}.</div>`;
+    .join("");
+  const zonder = D.ov.meerzijdig.zonderGeometrie;
+  return `${strip(F.gebieden.map((g) => [`${fmt(mz(g.code).richting.tangentieel, 1)}%`, `van de woonadressen in ${g.naam} heeft een lijn op loopafstand die niet door het centrum rijdt`, "datalade"]))}
+    <h4 style="margin-top:18px">Welke lijnen rijden om het centrum heen?</h4>
+    <p style="font-size:13.5px">Lijnen met een bruikbare halte op loopafstand van minstens 1% van de woonadressen. ‘Bereikt’ is het aandeel woonadressen in het gebied dat de lijn op loopafstand heeft.</p>
+    ${lijsten}
+    <h4 style="margin-top:22px">In hoeveel windrichtingen vertrek je vanaf je voordeur?</h4>
+    <p style="font-size:13.5px">De richting-spreiding uit het knooppuntmodel, gemeten per adres: naar welke windrichtingen (noord, oost, zuid, west) de bruikbare lijnen op loopafstand vertrekken. Lees dit samen met de tabel hierboven. Veel windrichtingen maar weinig tangentiële lijnen betekent: de lijnen vertrekken alle kanten op, maar rijden uiteindelijk toch via het centrum.</p>
+    ${verdelingTabel("Windrichtingen", RICHTINGEN, (c) => mz(c).richting.windrichtingen)}
+    ${buurtTabel("tangentieel", "Tangentiële lijn op loopafstand", false)}
+    <div class="foot">Tangentieel: de lijn komt niet in gebied Rotterdam Centrum (CBS-wijk, grens uit de datalade). Windrichting: waar de lijn ${fmt(MZ().richtingNaM / 1000)} km verder is, gezien vanaf de halte; een eindpunt telt niet.${zonder.length ? ` Zonder geometrie, dus zonder richting: ${zonder.join(", ")}.` : ""} ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
+}
+
+function storingstest() {
+  const rijen = F.gebieden
+    .flatMap((g) => mz(g.code).storing.corridors.slice(0, 3).map((c, i) => `<tr><td>${i ? "" : g.naam}</td><td>${c.corridor}</td><td>${balk(c.verlies)}</td></tr>`))
+    .join("");
+  return `${strip(F.gebieden.map((g) => {
+      const c = mz(g.code).storing.corridors[0];
+      return [`${fmt(c.verlies, 1)}%`, `van de woonadressen in ${g.naam} verliest bruikbaar OV als ${c.corridor} uitvalt`, "datalade"];
+    }))}
+    <h4 style="margin-top:18px">De drie zwaarste storingen per gebied</h4>
+    <p style="font-size:13.5px">Per corridor: welk deel van de woonadressen geen bruikbare lijn meer op loopafstand heeft als die corridor uitvalt. Nu al zonder bruikbare lijn: ${F.gebieden.map((g) => `${g.naam} ${fmt(mz(g.code).zonderBruikbaar, 1)}%`).join(", ")}. Die tellen hier niet mee.</p>
+    <div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>Gebied</th><th>Corridor valt uit</th><th>Verliest bruikbaar OV</th></tr></thead><tbody>${rijen}</tbody></table></div>
+    ${buurtTabel("verlies", "Verliest OV bij de zwaarste storing van het gebied", true)}
+    <div class="foot">Corridor: een lijn met de lijnen van dezelfde vervoerwijze die minstens de helft van zijn haltes delen; zo vallen metro A, B en C samen uit. ${reikwijdte()} ${D.ov.loopbaarheidBron}; bron: ${bronLoop()}.</div>`;
 }
 
 /* ---------- rapportcijfer ---------- */
@@ -657,7 +718,9 @@ const VISUEEL = {
   "wachttijd-vergunning": wachtlijstTabel,
   "ov-frequentie": frequentie,
   "ov-haltedekking": haltedekking,
-  "ov-meerzijdig": lijnenPerGebied,
+  "ov-vervoersmix": vervoersmix,
+  "ov-richting": richtingCheck,
+  "ov-storing": storingstest,
 };
 
 /* ---------- pagina ---------- */

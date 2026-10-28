@@ -17,6 +17,7 @@ versie van de feiten.
 
 import argparse
 import json
+import math
 import re
 import subprocess
 from pathlib import Path
@@ -33,6 +34,17 @@ GEBIEDEN = [
 LOOP_BUS_TRAM_M = 400
 LOOP_METRO_TREIN_M = 800
 AVOND_MIN_PER_RICHTING = 4
+
+# Meerzijdige bereikbaarheid: ook keuzes. Bus en tram rekenen met 500 m, omdat de bron per
+# halte alleen adreslijsten tot 500 m heeft (1 km bij vier grote knopen); metro en trein met
+# 800 m, net als de haltedekking.
+LOOP_HALTE_M = 500
+BRUIKBAAR_DAL = (
+    2  # vertrekken per uur per richting in het dal (09–16): elk half uur of vaker
+)
+RICHTING_NA_M = 2000  # de windrichting van een lijn is waar hij 2 km verder is
+CORRIDOR_OVERLAP = 0.5  # lijnen die de helft van hun haltes delen, vallen samen uit
+CENTRUM = "WK059901"  # tangentieel = de lijn komt niet in gebied Rotterdam Centrum
 
 
 def lees_const(pad: Path):
@@ -171,6 +183,289 @@ def parkeren(datalade: Path) -> dict:
             },
             "kaart": kaart,
         },
+    }
+
+
+def dec_oplopend(s: str) -> list[int]:
+    # Adreslijst per halte: oplopende indexen als base36-verschillen.
+    uit, vorig = [], 0
+    for p in s.split(",") if s else []:
+        vorig += int(p, 36)
+        uit.append(vorig)
+    return uit
+
+
+def dec_zigzag(s: str) -> list[float]:
+    # Coördinaten: zigzag-gecodeerde verschillen in eenheden van 1e-5 graad.
+    uit, vorig = [], 0
+    for p in s.split(","):
+        z = int(p, 36)
+        vorig += -((z + 1) >> 1) if z & 1 else z >> 1
+        uit.append(vorig / 1e5)
+    return uit
+
+
+COS_LAT = math.cos(math.radians(51.93))
+
+
+def meter(a, b) -> float:
+    return math.hypot((b[0] - a[0]) * 111_320 * COS_LAT, (b[1] - a[1]) * 110_540)
+
+
+def windrichting(van, naar) -> str:
+    graden = (
+        math.degrees(math.atan2((naar[0] - van[0]) * COS_LAT, naar[1] - van[1])) % 360
+    )
+    return "NOZW"[int(((graden + 45) % 360) // 90)]
+
+
+def richtingen(halte, delen) -> set[str]:
+    """Windrichtingen waarin een lijn vanaf deze halte vertrekt: waar hij 2 km verder is.
+
+    Elk deel van de geometrie is meestal één rijrichting; vanaf het dichtstbijzijnde punt lopen
+    we in beide richtingen langs de lijn. Een eindpunt (minder dan 500 m lijn over) telt niet."""
+    p = (halte["lon"], halte["lat"])
+    uit = set()
+    for deel in delen:
+        j = min(range(len(deel)), key=lambda k: meter(p, deel[k]))
+        if meter(p, deel[j]) > 250:
+            continue
+        for stap in (1, -1):
+            k, afstand = j, 0.0
+            while 0 <= k + stap < len(deel) and afstand < RICHTING_NA_M:
+                afstand += meter(deel[k], deel[k + stap])
+                k += stap
+            if afstand >= 500:
+                uit.add(windrichting(p, deel[k]))
+    return uit
+
+
+def corridors(lijnen, gebruikt) -> list[set]:
+    """Storing op een corridor: een lijn valt uit, en met hem de lijnen van dezelfde
+    vervoerwijze die minstens de helft van zijn haltes delen (metro A/B/C delen het spoor).
+
+    Gemeten op de hele lijn, niet op de bereikte haltes: anders valt alles samen wat bij
+    Alexander stopt. Niet doorgeschakeld: deelt B met A en C met B, dan niet C met A."""
+    haltes = {li: set(lijnen[li]["stops"]) for li in gebruikt}
+
+    def deelt(x, y):
+        gedeeld = len(haltes[x] & haltes[y])
+        drempel = CORRIDOR_OVERLAP * min(len(haltes[x]), len(haltes[y]))
+        return lijnen[x]["mode"] == lijnen[y]["mode"] and gedeeld >= drempel
+
+    groepen = {frozenset(y for y in haltes if y == x or deelt(x, y)) for x in haltes}
+    return [set(g) for g in groepen]
+
+
+def corridornaam(lijnen, groep) -> str:
+    per_modus = {}
+    for li in groep:
+        per_modus.setdefault(lijnen[li]["mode"], set()).add(lijnen[li]["nm"])
+    return " + ".join(
+        f"{m} {'/'.join(sorted(v))}" for m, v in sorted(per_modus.items())
+    )
+
+
+def meerzijdig_gebied(
+    buurt_van, n, bereik, lijnen, is_radiaal, richting_van, naam_buurt
+) -> dict:
+    """De drie maten voor één gebied. buurt_van: adres -> buurt; n: adres -> aantal adressen."""
+    adressen = list(buurt_van)
+    totaal = sum(n.values())
+
+    def pct(som):
+        return round(100 * som / totaal, 1)
+
+    def aandeel(test):
+        return pct(sum(n[a] for a in adressen if test(a)))
+
+    lijnen_van = {a: {li for _, li in bereik[a]} for a in adressen}
+    modi = {a: {lijnen[li]["mode"] for li in lijnen_van[a]} for a in adressen}
+    windr = {a: set().union(*[richting_van[p] for p in bereik[a]]) for a in adressen}
+    tang = {a: any(is_radiaal[li] is False for li in lijnen_van[a]) for a in adressen}
+
+    def verliest(a, groep):
+        return bool(lijnen_van[a]) and lijnen_van[a] <= groep
+
+    scenario = sorted(
+        (
+            (sum(n[a] for a in adressen if verliest(a, g)), g)
+            for g in corridors(lijnen, set().union(*lijnen_van.values()))
+        ),
+        key=lambda s: (-s[0], len(s[1])),
+    )
+    # Bevat een scenario een al genoemd, minstens even zwaar scenario, dan voegen de extra
+    # lijnen niets toe: noem alleen de kleinste groep die het verlies veroorzaakt.
+    getoond = []
+    for verlies, groep in scenario:
+        if not any(eerder <= groep for _, eerder in getoond):
+            getoond.append((verlies, groep))
+    ergste = getoond[0][1]
+
+    def verdeling(waarden):
+        return [aandeel(lambda a, k=k: min(len(waarden[a]), 4) == k) for k in range(5)]
+
+    buurten = {}
+    for a in adressen:
+        b = buurten.setdefault(
+            buurt_van[a], {"n": 0, "mix": 0, "tang": 0, "verlies": 0}
+        )
+        b["n"] += n[a]
+        b["mix"] += n[a] * (len(modi[a]) >= 2)
+        b["tang"] += n[a] * tang[a]
+        b["verlies"] += n[a] * verliest(a, ergste)
+    bereikte = {}
+    for a in adressen:
+        for li in lijnen_van[a]:
+            bereikte[li] = bereikte.get(li, 0) + n[a]
+    return {
+        "woonadressen": totaal,
+        "zonderBruikbaar": aandeel(lambda a: not lijnen_van[a]),
+        "vervoersmix": {
+            "aandeel": aandeel(lambda a: len(modi[a]) >= 2),
+            "verdeling": verdeling(modi),
+        },
+        "richting": {
+            "tangentieel": aandeel(lambda a: tang[a]),
+            "windrichtingen": verdeling(windr),
+            "lijnen": sorted(
+                (
+                    {
+                        "lijn": lijnen[li]["nm"],
+                        "traject": lijnen[li]["sub"],
+                        "modus": lijnen[li]["mode"],
+                        "tangentieel": is_radiaal[li] is False,
+                        "zonderGeometrie": is_radiaal[li] is None,
+                        "bereik": pct(som),
+                    }
+                    for li, som in bereikte.items()
+                ),
+                key=lambda x: -x["bereik"],
+            ),
+        },
+        "storing": {
+            "corridors": [
+                {
+                    "corridor": corridornaam(lijnen, g),
+                    "lijnen": len(g),
+                    "verlies": pct(v),
+                }
+                for v, g in getoond
+            ]
+        },
+        "perBuurt": sorted(
+            (
+                {
+                    "naam": naam_buurt[b],
+                    "woonadressen": v["n"],
+                    "mix": round(100 * v["mix"] / v["n"], 1),
+                    "tangentieel": round(100 * v["tang"] / v["n"], 1),
+                    "verlies": round(100 * v["verlies"] / v["n"], 1),
+                }
+                for b, v in buurten.items()
+            ),
+            key=lambda x: x["naam"],
+        ),
+    }
+
+
+def meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds) -> dict:
+    """Vervoersmix, richting-check en storingstest per gebied en buurt, op woonadressen."""
+    eis(data, "inc500", "inc1000", "px", "py", "lijnen", waar="loopbaarheid-ov")
+    geometrie = {
+        f["properties"]["i"]: f["geometry"]["coordinates"]
+        for f in json_blok(html, "d-lijnen")["features"]
+    }
+    lijnen = data["lijnen"]
+    dal = data["hlf_keys"].index("dal")
+    centrum = [
+        f["geometry"]
+        for f in lees_const(datalade / f"data/{CENTRUM}/geo.js")["features"]
+    ]
+
+    def radiaal(li):
+        if li not in geometrie:
+            return None  # geen geometrie: onbekend, telt niet als tangentieel
+        return any(
+            in_vlak(x, y, g) for deel in geometrie[li] for x, y in deel for g in centrum
+        )
+
+    # Woonadressen in het rayon: pandpunt -> (gebied, buurt).
+    woon = {
+        i: (gebied_van_buurt[b], b)
+        for i, b in enumerate(pb)
+        if b in gebied_van_buurt and data["dhp"][i] and gd[i] & 1
+    }
+    px, py = dec_zigzag(data["px"]), dec_zigzag(data["py"])
+
+    # Bruikbare lijnen per halte, met hun vertrekrichtingen.
+    is_radiaal = {}
+    bruikbaar = {}
+    for h in data["haltes"]:
+        rij = []
+        for li, f in zip(data["hlk"][h["id"]], data["hlf"][h["id"]]):
+            if f[dal] >= BRUIKBAAR_DAL:
+                if li not in is_radiaal:
+                    is_radiaal[li] = radiaal(li)
+                rij.append((li, richtingen(h, geometrie.get(li, []))))
+        bruikbaar[h["id"]] = rij
+
+    # Bereik per adres: elke halte op 500 m (1 km bij de vier knopen), plus voor metro en trein
+    # het dichtstbijzijnde station als dat over het looproutenetwerk binnen 800 m ligt. De bron
+    # zegt alleen hoe ver het dichtstbijzijnde station is, niet welk; dat kiezen we hemelsbreed.
+    bereik = {i: set() for i in woon}  # adres -> {(halte, lijn)}
+    for h in data["haltes"]:
+        adressen = dec_oplopend(data["inc500"].get(str(h["id"]), ""))
+        adressen += dec_oplopend(data["inc1000"].get(str(h["id"]), ""))
+        for a in adressen:
+            if a in bereik:
+                bereik[a].update((h["id"], li) for li, _ in bruikbaar[h["id"]])
+    for modus, afstand in (("metro", pdm), ("trein", pds)):
+        stations = [h for h in data["haltes"] if modus in h["m"]]
+        for a, paren in bereik.items():
+            if afstand[a] > LOOP_METRO_TREIN_M:
+                continue
+            s = min(
+                stations, key=lambda h, a=a: meter((px[a], py[a]), (h["lon"], h["lat"]))
+            )
+            paren.update(
+                (s["id"], li)
+                for li, _ in bruikbaar[s["id"]]
+                if lijnen[li]["mode"] == modus
+            )
+
+    richting_van = {(h, li): r for h in bruikbaar for li, r in bruikbaar[h]}
+    naam_buurt = {
+        f["properties"]["i"]: f["properties"]["n"]
+        for f in json_blok(html, "d-buurt")["features"]
+    }
+    per_gebied = {
+        code: meerzijdig_gebied(
+            {a: b for a, (g, b) in woon.items() if g == code},
+            {a: data["nvo"][a] for a, (g, _) in woon.items() if g == code},
+            bereik,
+            lijnen,
+            is_radiaal,
+            richting_van,
+            naam_buurt,
+        )
+        for code in GEBIEDEN
+    }
+    return {
+        "drempels": {
+            "loopHalteM": LOOP_HALTE_M,
+            "loopMetroTreinM": LOOP_METRO_TREIN_M,
+            "bruikbaarDal": BRUIKBAAR_DAL,
+            "richtingNaM": RICHTING_NA_M,
+            "corridorOverlap": CORRIDOR_OVERLAP,
+            "knopen1km": [data["haltes"][int(k)]["n"] for k in data["inc1000"]],
+        },
+        "zonderGeometrie": sorted(
+            lijnen[li]["nm"] + " " + lijnen[li]["sub"]
+            for li, r in is_radiaal.items()
+            if r is None
+        ),
+        "perGebied": per_gebied,
     }
 
 
@@ -325,7 +620,11 @@ def ov(datalade: Path, loopbaarheid_html: Path) -> dict:
             "gtfsPeildatum": ovg["peildatum"],
             "gtfsBron": ovg["bron"],
         }
+    mz = meerzijdig(data, html, datalade, gebied_van_buurt, pb, gd, pdm, pds)
+    for code in GEBIEDEN:
+        per_gebied[code]["meerzijdig"] = mz["perGebied"][code]
     return {
+        "meerzijdig": {k: v for k, v in mz.items() if k != "perGebied"},
         "drempels": {
             "busTramM": LOOP_BUS_TRAM_M,
             "metroTreinM": LOOP_METRO_TREIN_M,

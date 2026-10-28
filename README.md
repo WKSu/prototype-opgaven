@@ -40,6 +40,17 @@ Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit 
 Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
 Daarna: `uvx ruff format scripts/ && uvx ruff check scripts/`.
 
+### Meerzijdige bereikbaarheid (OV)
+
+Drie maten per woonadres, opgeteld per buurt en gebied: de **vervoersmix** (minstens twee soorten
+OV op loopafstand), de **richting-check** (een lijn op loopafstand die niet door gebied Rotterdam
+Centrum rijdt) en de **storingstest** (wie geen bruikbaar OV overhoudt als de kwetsbaarste
+corridor uitvalt). Loopafstand: 500 m naar bus en tram (de bron heeft per halte alleen
+adreslijsten tot 500 m), 800 m naar metro en trein. Een lijn telt mee bij minstens 2 vertrekken
+per uur per richting in het dal. Een corridor is een lijn met de lijnen van dezelfde vervoerwijze
+die de helft van zijn haltes delen. Alle drempels staan bovenaan `scripts/bouw_datalade.py`.
+Het bereik binnen 30 minuten vraagt een reisplanner en banen per locatie; die zijn er nog niet.
+
 ## Parkeertellingen bijwerken
 
 `data/parkeerdruk.js` komt uit de handmatige levering in `data_manual/parkeerdruk/data`: de zips
