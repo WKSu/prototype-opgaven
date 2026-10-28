@@ -21,7 +21,8 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
 | `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
-| `js/thema.js` | themaviewers: kaart, tabellen en uurprofiel uit `DATALADE` |
+| `js/thema.js` | themaviewers: kaarten, tabellen, schuifjes en uurprofiel; tabellen boven 8 rijen klappen in |
+| `js/ov-normen.js` | frequentie en haltedekking bij een instelbare norm, gedeeld door overzicht en OV-viewer |
 | `js/review.js` | reviewmodus, alleen geladen met `?review=1` |
 
 ## Echte cijfers bijwerken
@@ -39,6 +40,16 @@ uv run scripts/bouw_datalade.py --datalade ../wksu/prototype-overschie \
 Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
 Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
 Daarna: `uvx ruff format scripts/ && uvx ruff check scripts/`.
+
+### Frequentie en haltedekking (OV)
+
+Beide zijn instelbaar in de OV-viewer. `scripts/bouw_datalade.py` schrijft daarom geen cijfer bij
+één drempel, maar per buurt twee verdelingen van woonadressen: naar de beste frequentie op
+loopafstand per dagdeel (in stappen van 0,5 per uur per richting), en naar de loopafstand tot
+bus/tram en metro/trein (stappen van 50 en 100 m). `js/ov-normen.js` telt die bij elke stand van de
+schuifjes exact op; het overzicht gebruikt dezelfde rekenregel bij de standaardnorm uit
+`FUNCTIONEREN.ovKeuzes` (avond, 4 per uur; 500 m bus/tram, 800 m metro/trein). De onderbouwing
+van de loopafstanden staat in `docs/loopafstanden.md`.
 
 ### Meerzijdige bereikbaarheid (OV)
 

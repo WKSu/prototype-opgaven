@@ -128,3 +128,15 @@ table.data .getal{text-align:right;white-space:nowrap}
 details{margin-top:10px;font-size:13.5px}
 details summary{cursor:pointer;font-weight:700;color:var(--schie)}
 nav a[aria-current]{background:#fff;color:var(--schie);opacity:1}
+
+/* ---------- normschuifjes ---------- */
+.normen{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;background:var(--beton);border:1px solid var(--grid);padding:12px 14px;margin:6px 0 14px;font-size:13.5px}
+.normen label{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.normen input[type=range]{width:220px;max-width:100%;accent-color:var(--schie)}
+.knoppen{display:inline-flex;flex-wrap:wrap;border:1px solid var(--grid);border-radius:3px;overflow:hidden}
+.knoppen button{background:var(--wit);border:0;border-right:1px solid var(--grid);padding:5px 10px;cursor:pointer;font-size:12.5px}
+.knoppen button:last-child{border-right:0}
+.knoppen button[aria-pressed="true"]{background:var(--schie);color:#fff}
+.normen .terug{background:var(--wit);border:1px solid var(--grid);border-radius:3px;padding:4px 9px;cursor:pointer;font-size:12.5px}
+.ijk{flex-basis:100%;font-size:12px;color:var(--asfalt-zacht)}
+details.tabel-in{margin-top:8px}

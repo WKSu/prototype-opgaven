@@ -32,6 +32,12 @@ const FUNCTIONEREN = {
     },
   },
 
+  // Standaardnormen voor frequentie en haltedekking: keuzes, geen vastgestelde normen. In de
+  // OV-viewer met schuifjes in te stellen; het overzicht rekent met deze waarden. Onderbouwing
+  // van de loopafstanden: docs/loopafstanden.md. De avondgrens komt uit de notitie Parkeren en OV
+  // (blinde vlekken: minder dan 4 vertrekken per uur in de avond).
+  ovKeuzes: { dagdeel: "av", perUur: 4, loopBusTramM: 500, loopMetroTreinM: 800 },
+
   themas: [
     {
       sleutel: "parkeren",
@@ -275,14 +281,14 @@ const FUNCTIONEREN = {
           sleutel: "ov-frequentie",
           groep: "Bediening",
           naam: "Frequentie van het OV",
-          eenheid: "% van de haltes",
+          eenheid: "% van de woonadressen",
           norm: null,
-          definitie: "Aandeel haltes waar minstens één lijn in de avond (18–24 uur) gemiddeld 4 of meer vertrekken per uur per richting heeft, op een werkdag.",
-          niveau: "halte",
+          definitie: "Aandeel woonadressen met op loopafstand een lijn die in de avond (18–24 uur) gemiddeld minstens 4 keer per uur per richting rijdt, op een werkdag. Dagdeel en grens zijn in de OV-viewer in te stellen.",
+          niveau: "adres",
           bron: "GTFS via de verkenner Invloedsgebied ov-haltes",
           data: "beschikbaar",
           actie: "Inbrengen bij het vervoerplan van de MRDH en de OV-visie 2050. De MRDH beslist over het lijnennet.",
-          letop: "De grens van 4 is een keuze, geen vastgestelde norm. Het gemiddelde over 18–24 uur ligt lager dan om 19 uur, omdat de late uren meetellen.",
+          letop: "De grens van 4 is een keuze, geen vastgestelde norm. Het gemiddelde over 18–24 uur ligt lager dan om 19 uur, omdat de late uren meetellen. De loopafstand ligt vast op 500 m naar bus en tram en 800 m naar metro en trein: de bron heeft per halte geen fijnere afstanden.",
           waarden: {
             WK059904: { v: 48 },
             WK059906: { v: 61 },
@@ -290,7 +296,7 @@ const FUNCTIONEREN = {
           },
           datalade: {
             status: "ja",
-            tekst: "Te berekenen uit de verkenner Invloedsgebied ov-haltes: per halte en per lijn het aantal vertrekken per uur per richting, per dagdeel.",
+            tekst: "Te berekenen uit de verkenner Invloedsgebied ov-haltes: per adres de lijnen op loopafstand, met hun vertrekken per uur per richting per dagdeel.",
             nodig: null,
           },
         },
@@ -300,12 +306,12 @@ const FUNCTIONEREN = {
           naam: "Haltedekking",
           eenheid: "% van de woonadressen",
           norm: null,
-          definitie: "Aandeel woonadressen binnen 400 m lopen van een bus- of tramhalte of 800 m van een metro- of treinstation, over het looproutenetwerk.",
+          definitie: "Aandeel woonadressen binnen 500 m lopen van een bus- of tramhalte of 800 m van een metro- of treinstation, over het looproutenetwerk. De afstanden zijn in de OV-viewer in te stellen.",
           niveau: "adres",
           bron: "BAG, GTFS en looproutes via de verkenner Invloedsgebied ov-haltes",
           data: "beschikbaar",
           actie: "Inbrengen bij het vervoerplan van de MRDH en de kaart van blinde vlekken.",
-          letop: "Een halte met één bus per uur telt als dekking. Lees altijd samen met de frequentie.",
+          letop: "500 m lopen komt ongeveer overeen met de gangbare 400 m hemelsbreed; zie docs/loopafstanden.md. Een halte met één bus per uur telt als dekking: lees samen met de frequentie.",
           waarden: {
             WK059904: { v: 86 },
             WK059906: { v: 93 },
