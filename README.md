@@ -12,7 +12,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | Bestand | Wat |
 |---|---|
 | `index.html` | overzicht: alle indicatoren met normenlaag (mock-up, deels echte cijfers) |
-| `parkeren.html`, `ov.html` | themaviewers: per indicator wat de datalade al kan beantwoorden en wat er nodig is |
+| `parkeren.html`, `ov.html` | themaviewers: per indicator wat hij zegt, hoe hij gemeten is en waar je op let, met kaarten en tabellen die aan elkaar gekoppeld zijn |
 | `css/basis.css` | gedeelde opmaak; huisstijlkleuren gemeente Rotterdam, alleen licht |
 | `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen, indicatoren en per indicator de datalade-status (handgeschreven) |
 | `data/datalade.js` | `const DATALADE`: echte cijfers, gegenereerd door `scripts/bouw_datalade.py` |

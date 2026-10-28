@@ -140,3 +140,22 @@ nav a[aria-current]{background:#fff;color:var(--schie);opacity:1}
 .normen .terug{background:var(--wit);border:1px solid var(--grid);border-radius:3px;padding:4px 9px;cursor:pointer;font-size:12.5px}
 .ijk{flex-basis:100%;font-size:12px;color:var(--asfalt-zacht)}
 details.tabel-in{margin-top:8px}
+
+/* ---------- kaart en tabel gekoppeld ---------- */
+.kaart-svg [data-koppel]{cursor:pointer}
+.kaart-svg .omlijning{fill:none;stroke:var(--asfalt);stroke-width:2.8;pointer-events:none;stroke-linejoin:round}
+tr[data-koppel]{cursor:pointer}
+tr.uitgelicht td{background:var(--t-aandacht)}
+.kaartlabel{position:fixed;z-index:50;pointer-events:none;background:var(--wit);border:1px solid var(--grid);box-shadow:0 2px 8px rgba(0,0,0,.18);padding:6px 9px;font-size:12.5px;line-height:1.35;max-width:320px}
+.kaartlabel b{display:block;font-size:13px}
+
+/* ---------- uitleg per indicator ---------- */
+p.kernvraag{font-size:19px;max-width:62ch;color:var(--asfalt-zacht);margin-bottom:10px}
+dl.uitleg{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 22px;margin:8px 0 6px;font-size:14px;max-width:1000px}
+dl.uitleg dt{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--asfalt-zacht);font-weight:700}
+dl.uitleg .mist dt{color:var(--rood-tekst)}
+ol.inhoudsopgave{list-style:none;margin:22px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px 22px}
+ol.inhoudsopgave li{background:var(--wit);border:1px solid var(--grid);padding:9px 12px;font-size:14px}
+ol.inhoudsopgave li a{font-weight:700;text-decoration:none}
+ol.inhoudsopgave .tocvraag{display:block;color:var(--asfalt-zacht);font-size:13px;margin-top:2px}
+ol.inhoudsopgave .oordeel{font-size:11px;margin-left:4px}
