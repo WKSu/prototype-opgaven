@@ -567,14 +567,38 @@ const zetWaarde = (id, tekst) => {
 const bediendPct = (b) => pctVan(OVN.bediendIn(b, S_OV.dagdeel, S_OV.perUur), b.woonadressen);
 const bediendHover = (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen`} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${D.ov.bediening.dagdelen[S_OV.dagdeel]}`;
 
-function haltePunten(xy) {
-  return `<g id="bed-haltes">${alleHaltes()
-    .map((h, i) => {
-      const [x, y] = xy([h.lon, h.lat]);
+// Overstappunten: haltes binnen 150 m van elkaar zijn één punt (bouw_datalade.py). De kleur volgt
+// de indicator (de beste lijn), de grootte alles wat er vertrekt, alle lijnen samen; zo valt een
+// knoop met tien lijnen op naast een metrohalte met één, ook als de beste lijn even vaak rijdt.
+const alleKnopen = () => F.gebieden.flatMap((g) => ov(g.code).knopen);
+const knoopR = (samen) => Math.max(3, 2.3 * Math.sqrt(samen));
+const KNOOP_NAAM_LIJNEN = 8; // grote knopen krijgen hun naam op de kaart
+const KNOOP_IJK = [2, 10, 30];
+
+function knoopPunten(xy) {
+  const ks = alleKnopen();
+  const volgorde = ks.map((k, i) => i).sort((a, b) => ks[b].os.samen - ks[a].os.samen);
+  const punten = volgorde
+    .map((i) => {
+      const [x, y] = xy([ks[i].lon, ks[i].lat]);
       return `<circle data-i="${i}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.6" style="stroke:var(--asfalt);stroke-width:1" data-tip=""></circle>`;
     })
-    .join("")}</g>`;
+    .join("");
+  const namen = ks
+    .filter((k) => k.lijnen >= KNOOP_NAAM_LIJNEN)
+    .map((k) => {
+      const [x, y] = xy([k.lon, k.lat]);
+      return `<text x="${(x + 17).toFixed(0)}" y="${(y + 4).toFixed(0)}" style="font-size:11.5px;font-weight:700">${attr(k.naam)}</text>`;
+    })
+    .join("");
+  return `<g id="bed-haltes">${punten}</g>${namen}`;
 }
+
+const knoopLegenda = () =>
+  `<div class="legenda-rij"><b>Haltes</b><span><i class="rond" style="background:var(--asfalt)"></i>beste lijn haalt de grens</span><span><i class="rond" style="background:var(--wit)"></i>niet</span><span>grootte: vertrekken per uur per richting, alle lijnen samen</span>${KNOOP_IJK.map((n) => {
+    const r = knoopR(n);
+    return `<span><svg width="${(2 * r + 2).toFixed(0)}" height="${(2 * r + 2).toFixed(0)}" style="vertical-align:middle;margin-right:4px" aria-hidden="true"><circle cx="${(r + 1).toFixed(1)}" cy="${(r + 1).toFixed(1)}" r="${r.toFixed(1)}" fill="var(--wit)" stroke="var(--asfalt)"></circle></svg>${n}</span>`;
+  }).join("")}</div>`;
 
 function bediening() {
   const dd = D.ov.bediening.dagdelen;
@@ -593,9 +617,10 @@ function bediening() {
     <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen de uitkomsten ver uit elkaar, dan bepaalt de grens het beeld.</p>
     <div id="bed-gevoelig"></div>
     <h4 style="margin-top:22px">Per buurt</h4>
-    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt.${OK ? " Kies <i>Loopgebied van de haltes</i> om te zien waar dat aandeel vandaan komt: gekleurd is binnen loopafstand van zo’n halte, wit niet." : ""}</p>
+    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt. Daar rekent de indicator mee. Hoe groter het punt, hoe meer er vertrekt, alle lijnen samen; haltes binnen 150 m van elkaar, zoals een metrostation met de busperrons ernaast, zijn één punt.${OK ? " Kies <i>Loopgebied van de haltes</i> om te zien waar dat aandeel vandaan komt: gekleurd is binnen loopafstand van zo’n halte, wit niet." : ""}</p>
     ${laagKnoppen("bed-kaart")}${loopLegenda("bed-kaart")}
-    ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, (xy) => zonePaden(xy) + haltePunten(xy))}
+    ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, (xy) => zonePaden(xy) + knoopPunten(xy))}
+    ${knoopLegenda()}
     ${buurtTabelKop("bed-buurten", "Goed bediend")}
     <h4 style="margin-top:22px">Vertrekken per uur op een werkdag</h4>
     <p style="font-size:13.5px">Alle vertrekken vanaf haltes in het gebied, alle lijnen en richtingen samen. De avond (vanaf 18 uur) is donker.${uurprofielNoot()}</p>
@@ -617,12 +642,13 @@ function tekenBediening() {
     .map((g) => `<tr><td>${g.naam}</td>${grenzen.map((x) => `<td class="getal">${fmt(OVN.bediend(g.code, S_OV.dagdeel, x), 1)}%</td>`).join("")}</tr>`)
     .join("")}</tbody></table></div>`;
   kleurKaart("bed-kaart", DEKKING_KL, bediendPct, bediendHover);
-  const hs = alleHaltes();
+  const ks = alleKnopen();
   document.querySelectorAll("#bed-haltes circle").forEach((c) => {
-    const h = hs[c.dataset.i], v = h[S_OV.dagdeel];
-    const haalt = v >= S_OV.perUur;
+    const k = ks[c.dataset.i], { beste, samen } = k[S_OV.dagdeel];
+    const haalt = beste >= S_OV.perUur;
+    c.setAttribute("r", knoopR(samen).toFixed(1));
     c.style.fill = haalt ? "var(--asfalt)" : "var(--wit)";
-    c.dataset.tip = `${h.naam} (${h.modi.join(", ")}): beste lijn ${fmt(v, 1)} per uur per richting, ${dd}${haalt ? "" : " — haalt de norm niet"}`;
+    c.dataset.tip = `${k.naam}${k.haltes > 1 ? ` (${k.haltes} haltes)` : ""}, ${k.modi.join(", ")}: ${k.lijnen} ${k.lijnen === 1 ? "lijn" : "lijnen"}, samen ${fmt(samen, 1)} vertrekken per uur per richting, ${dd}. Beste lijn ${fmt(beste, 1)}${haalt ? "" : " — haalt de norm niet"}.`;
   });
   buurtRijen("bed-buurten", bediendPct);
   if (OK) {
