@@ -17,6 +17,8 @@ const FP = typeof FIETSPARKEREN !== "undefined" ? FIETSPARKEREN : null;
 // Context voor parkeren, geen indicator: woningbouwprognose (BoPro) en P+R-capaciteit (NPR).
 const WB = typeof WONINGBOUW !== "undefined" ? WONINGBOUW : null;
 const PRR = typeof PR !== "undefined" ? PR : null;
+// Toegankelijkheid per perron uit het Centraal Haltebestand: open data, maar een eigen bouwstap.
+const TG = typeof TOEGANKELIJK !== "undefined" ? TOEGANKELIJK : null;
 const THEMA = F && F.themas.find((t) => t.sleutel === document.body.dataset.thema);
 // Extra gebieden (de Spaanse Polder) staan in de parkeertelling, niet in het rayon: wel op de
 // kaart en in de tabellen, niet in de gebiedscijfers van het overzicht.
@@ -81,6 +83,8 @@ function projectie(features, breedte) {
     },
     hoogte,
     ondergrond: ondergrond(x0, y1, s, breedte, hoogte),
+    // Voor het inzoomen: daarmee haalt de kaart scherpere tegels voor het stuk in beeld.
+    merc: [x0, y1, s],
   };
 }
 
@@ -107,7 +111,7 @@ function ondergrond(x0, y1, s, breedte, hoogte) {
 const sluier = (features, pad, breedte, hoogte) =>
   `<path d="M0,0H${breedte}V${hoogte.toFixed(1)}H0Z${features.map((f) => pad(f.geometrie)).join("")}" fill="var(--wit)" fill-rule="evenodd" style="fill-opacity:.55;stroke:none;pointer-events:none"/>`;
 const bronvermelding = (breedte, hoogte) =>
-  `<text x="${breedte - 4}" y="${(hoogte - 4).toFixed(0)}" text-anchor="end" style="font-size:9.5px;font-weight:400">Achtergrond: PDOK / © Kadaster, CC-BY 4.0</text>`;
+  `<text class="bron" x="${breedte - 4}" y="${(hoogte - 4).toFixed(0)}" text-anchor="end" style="font-size:9.5px;font-weight:400">Achtergrond: PDOK / © Kadaster, CC-BY 4.0</text>`;
 
 const polygonen = (g) => (g.type === "Polygon" ? [g.coordinates] : g.coordinates);
 const padVan = (xy) => (g) =>
@@ -456,14 +460,152 @@ const VERLIES_KL = klassen([5, 15, 30, 60], ["tot 5%", "5–15%", "15–30%", "3
 function buurtKaart(id, titel, kl, waarde, hover, extra = () => "", omvang = []) {
   const bs = alleBuurten();
   const W = 800;
-  const { xy, hoogte, ondergrond } = projectie([...bs, ...omvang], W);
+  const { xy, hoogte, ondergrond, merc } = projectie([...bs, ...omvang], W);
   const pad = padVan(xy);
   const paden = bs
     .map((b) => `<path d="${pad(b.geometrie)}" data-buurt="${attr(b.naam)}" data-koppel="${sleutel("buurt", b.naam)}" fill="${kl.kleur(waarde(b))}" data-tip="${attr(hover(b, waarde(b)))}"></path>`)
     .join("");
   return `<div class="legenda-rij kaartlegenda"><b>${titel}</b>${kl.legenda}</div>
-    <svg id="${id}" class="kaart-svg" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart per buurt: ${titel}">${ondergrond}${sluier(bs, pad, W, hoogte)}${paden}${extra(xy)}${gebiedLabels(bs, xy)}${bronvermelding(W, hoogte)}</svg>`;
+    <svg id="${id}" class="kaart-svg" data-merc="${merc.join(",")}" viewBox="0 0 ${W} ${hoogte.toFixed(0)}" role="img" aria-label="Kaart per buurt: ${titel}">${ondergrond}${sluier(bs, pad, W, hoogte)}${paden}${extra(xy)}${gebiedLabels(bs, xy)}${bronvermelding(W, hoogte)}</svg>`;
 }
+
+/* ---------- inzoomen ---------- */
+
+// Een kaart met zoomKnoppen(id) ernaast kan inzoomen: de viewBox krimpt. Punten, lijnen en
+// namen houden hun grootte op het scherm, zodat dicht opeen liggende perrons uit elkaar gaan.
+// Na het zoomen komen scherpere PDOK-tegels over het stuk in beeld. Slepen verschuift; Ctrl
+// (of ⌘) met scrollen en knijpen op een touchscherm zoomen, gewoon scrollen blijft de pagina.
+const ZOOM_MAX = 16;
+const zoomKnoppen = (id) =>
+  `<div class="zoomknoppen" role="group" aria-label="Inzoomen op de kaart" data-kaart="${id}"><button type="button" data-zoom="2" aria-label="Inzoomen" title="Inzoomen">+</button><button type="button" data-zoom="0.5" aria-label="Uitzoomen" title="Uitzoomen">−</button><button type="button" data-zoom="heel">Hele kaart</button></div>`;
+
+function zoomKaart(svg) {
+  const [W, H] = [svg.viewBox.baseVal.width, svg.viewBox.baseVal.height];
+  const [x0, y1, s] = svg.dataset.merc.split(",").map(Number);
+  const v = { x: 0, y: 0, w: W };
+  // Wat op het scherm even groot moet blijven, met zijn maat bij zoom 1.
+  const punten = [...svg.querySelectorAll("circle")].map((c) => [c, Number(c.getAttribute("r"))]);
+  const teksten = [...svg.querySelectorAll("text")].map((t) => {
+    const cs = getComputedStyle(t);
+    return [t, parseFloat(cs.fontSize), parseFloat(cs.strokeWidth) || 0];
+  });
+  const bron = svg.querySelector("text.bron");
+  let tegels = null, wacht = null;
+
+  function scherper(k) {
+    if (tegels) tegels.remove();
+    tegels = null;
+    if (k <= 1) return;
+    const h = (v.w * H) / W;
+    tegels = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    tegels.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${1 / k})`);
+    tegels.style.pointerEvents = "none";
+    tegels.innerHTML = ondergrond(x0 + v.x / s, y1 - v.y / s, s * k, W, h * k);
+    svg.firstElementChild.after(tegels);
+  }
+
+  function zet(x, y, w) {
+    v.w = Math.min(W, Math.max(W / ZOOM_MAX, w));
+    const h = (v.w * H) / W;
+    v.x = Math.min(W - v.w, Math.max(0, x));
+    v.y = Math.min(H - h, Math.max(0, y));
+    const k = W / v.w;
+    svg.setAttribute("viewBox", `${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${h.toFixed(2)}`);
+    svg.classList.toggle("ingezoomd", k > 1.001);
+    punten.forEach(([c, r]) => c.setAttribute("r", (r / k).toFixed(2)));
+    teksten.forEach(([t, fs, sw]) => {
+      t.style.fontSize = `${fs / k}px`;
+      if (sw) t.style.strokeWidth = `${sw / k}px`;
+    });
+    if (bron) {
+      bron.setAttribute("x", (v.x + v.w - 4 / k).toFixed(1));
+      bron.setAttribute("y", (v.y + h - 4 / k).toFixed(1));
+    }
+    // Omlijningen zijn kopieën met de straal van toen; opnieuw tekenen.
+    markeer(vastgezet);
+    clearTimeout(wacht);
+    wacht = setTimeout(() => scherper(k), 200);
+  }
+  // Schermpixels naar kaarteenheden, met de marge die preserveAspectRatio laat.
+  const opKaart = (cx, cy) => {
+    const m = svg.getScreenCTM();
+    return [(cx - m.e) / m.a, (cy - m.f) / m.d];
+  };
+  function zoomOm(factor, cx, cy) {
+    const [px, py] = cx == null ? [v.x + v.w / 2, v.y + (v.w * H) / W / 2] : opKaart(cx, cy);
+    const w = Math.min(W, Math.max(W / ZOOM_MAX, v.w / factor)), f = v.w / w;
+    zet(px - (px - v.x) / f, py - (py - v.y) / f, w);
+  }
+
+  document.querySelectorAll(`.zoomknoppen[data-kaart="${svg.id}"] button`).forEach((b) => {
+    b.onclick = () => (b.dataset.zoom === "heel" ? zet(0, 0, W) : zoomOm(Number(b.dataset.zoom)));
+  });
+  svg.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomOm(Math.exp(-e.deltaY * 0.004), e.clientX, e.clientY);
+    },
+    { passive: false }
+  );
+
+  // Slepen en knijpen. Pas na een paar pixels is het slepen, anders blijft het een klik op een
+  // buurt of perron; dan pas vangt de kaart de aanwijzer.
+  const vingers = new Map();
+  let gesleept = false, afstand = null;
+  svg.addEventListener("pointerdown", (e) => {
+    if (e.button) return;
+    vingers.set(e.pointerId, [e.clientX, e.clientY]);
+    if (vingers.size === 1) gesleept = false;
+    afstand = null;
+  });
+  svg.addEventListener("pointermove", (e) => {
+    const was = vingers.get(e.pointerId);
+    if (!was) return;
+    const nu = [e.clientX, e.clientY];
+    if (vingers.size === 2) {
+      vingers.set(e.pointerId, nu);
+      const [c, d] = [...vingers.values()];
+      const dist = Math.hypot(c[0] - d[0], c[1] - d[1]);
+      if (afstand && dist) zoomOm(dist / afstand, (c[0] + d[0]) / 2, (c[1] + d[1]) / 2);
+      afstand = dist;
+      gesleept = true;
+      return;
+    }
+    if (!gesleept && Math.hypot(nu[0] - was[0], nu[1] - was[1]) < 4) return;
+    if (!gesleept) svg.setPointerCapture(e.pointerId);
+    gesleept = true;
+    vingers.set(e.pointerId, nu);
+    const m = svg.getScreenCTM();
+    zet(v.x - (nu[0] - was[0]) / m.a, v.y - (nu[1] - was[1]) / m.d, v.w);
+  });
+  const los = (e) => {
+    vingers.delete(e.pointerId);
+    afstand = null;
+  };
+  svg.addEventListener("pointerup", los);
+  svg.addEventListener("pointercancel", los);
+  // Na slepen geen klik: die zou de gekozen buurt of het perron loslaten.
+  svg.addEventListener(
+    "click",
+    (e) => {
+      if (!gesleept) return;
+      e.stopPropagation();
+      gesleept = false;
+    },
+    true
+  );
+}
+NA_RENDER.push(function kaartZoom() {
+  document.querySelectorAll(".zoomknoppen[data-kaart]").forEach((k) => {
+    const svg = document.getElementById(k.dataset.kaart);
+    if (svg && svg.dataset.merc) {
+      svg.classList.add("zoombaar");
+      zoomKaart(svg);
+    }
+  });
+});
 
 /* ---------- loopgebieden: waar de haltes reiken ---------- */
 
@@ -1005,6 +1147,94 @@ NA_RENDER.push(function storingKiezer() {
   tekenStoring();
 });
 
+/* ---------- toegankelijke perrons ---------- */
+
+// Vier uitkomsten per perron. Zwart is allebei, wit is geen van beide, zoals bij de haltes van
+// de frequentie (haalt de grens of niet); de twee halve uitkomsten in Okabe-Ito blauw en geel.
+// Geen rood: het beleidskader heeft geen norm waaraan een perron of gebied zakt.
+const TG_SOORT = [
+  { k: "beide", t: "motorisch en visueel", kleur: "var(--asfalt)" },
+  { k: "alleenRolstoel", t: "alleen motorisch", kleur: "#0072B2" },
+  { k: "alleenVisueel", t: "alleen visueel", kleur: "#F0E442" },
+  { k: "geen", t: "geen van beide", kleur: "var(--wit)" },
+  { k: "onbekend", t: "onbekend", kleur: "var(--beton-diep)" },
+];
+function tgSoort(p) {
+  if (p.rolstoel == null || p.visueel == null) return TG_SOORT[4];
+  return TG_SOORT[p.rolstoel ? (p.visueel ? 0 : 1) : p.visueel ? 2 : 3];
+}
+const tg = (code) => TG.gebieden[code];
+const jaNee = (b) => (b == null ? "onbekend" : b ? "ja" : "nee");
+const tgDag = () => `dinsdag ${datum(TG.peildatum)}`;
+const perronR = (n) => Math.max(2.5, 0.42 * Math.sqrt(n));
+const PERRON_IJK = [50, 200, 500];
+const perronTip = (p) =>
+  `${p.halte} (${p.modus}, perron ${p.code}): ${tgSoort(p).t} toegankelijk. Motorisch ${jaNee(p.rolstoel)}, visueel ${jaNee(p.visueel)}; perronhoogte ${p.perronhoogteCm == null ? "onbekend" : `${p.perronhoogteCm} cm`}, geleidelijn ${jaNee(p.geleidelijn)}. ${fmt(p.vertrekken)} vertrekken op ${tgDag()}`;
+
+// Grootste punten onderop, zodat een klein perron naast een metrostation aanwijsbaar blijft.
+const perronPunten = (xy) =>
+  `<g>${TG.perrons
+    .slice()
+    .sort((a, b) => b.vertrekken - a.vertrekken)
+    .map((p) => {
+      const [x, y] = xy([p.lon, p.lat]);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${perronR(p.vertrekken).toFixed(1)}" fill="${tgSoort(p).kleur}" style="stroke:var(--asfalt);stroke-width:.9" data-koppel="${sleutel("perron", p.code)} ${sleutel("buurt", p.buurt)}" data-tip="${attr(perronTip(p))}"></circle>`;
+    })
+    .join("")}</g>`;
+const perronLegenda = () =>
+  `<div class="legenda-rij"><b>Perrons</b>${TG_SOORT.filter((s) => TG.perrons.some((p) => tgSoort(p) === s))
+    .map((s) => `<span><i class="rond" style="background:${s.kleur}"></i>${s.t}</span>`)
+    .join("")}<span>grootte: vertrekken op een werkdag</span>${PERRON_IJK.map((n) => {
+    const r = perronR(n);
+    return `<span><svg width="${(2 * r + 2).toFixed(0)}" height="${(2 * r + 2).toFixed(0)}" style="vertical-align:middle;margin-right:4px" aria-hidden="true"><circle cx="${(r + 1).toFixed(1)}" cy="${(r + 1).toFixed(1)}" r="${r.toFixed(1)}" fill="var(--wit)" stroke="var(--asfalt)"></circle></svg>${n}</span>`;
+  }).join("")}</div>`;
+
+// Aandeel per buurt: de vertrekken vanaf perrons die allebei zijn. Vertrekken en niet perrons,
+// want het beleidskader geeft de drukst gebruikte haltes voorrang. Een buurt zonder perron is leeg.
+const tgBuurt = (b) => tg(b.gebied).buurten[b.naam];
+const tgBuurtPct = (b) => {
+  const t = tgBuurt(b);
+  return t && t.vertrekken ? (100 * t.vertrekkenBeide) / t.vertrekken : null;
+};
+const tgHover = (b, v) => {
+  const t = tgBuurt(b);
+  return `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen perron in de buurt" : `${t.beide} van ${t.perrons} perrons motorisch en visueel toegankelijk; ${fmt(v, 0)}% van de ${fmt(t.vertrekken)} vertrekken`}`;
+};
+
+function perronRijen(perrons) {
+  return perrons
+    .map((p) => `<tr data-koppel="${sleutel("perron", p.code)} ${sleutel("buurt", p.buurt)}"><td>${p.halte}<br><span class="toel">perron ${p.code}</span></td><td>${GEBIED[p.gebied]}</td><td>${p.modus}</td><td class="getal">${fmt(p.vertrekken)}</td><td>${jaNee(p.rolstoel)}</td><td>${jaNee(p.visueel)}</td><td class="getal">${p.perronhoogteCm == null ? "–" : p.perronhoogteCm}</td><td>${jaNee(p.geleidelijn)}</td></tr>`)
+    .join("");
+}
+const perronKop = `<thead><tr><th>Halte</th><th>Gebied</th><th>Soort</th><th class="getal">Vertrekken</th><th>Motorisch</th><th>Visueel</th><th class="getal">Hoogte (cm)</th><th>Geleidelijn</th></tr></thead>`;
+
+function toegankelijkheid() {
+  const pct = (deel, geheel) => (geheel ? `${fmt((100 * deel) / geheel, 0)}%` : "–");
+  const nog = TG.perrons.filter((p) => tgSoort(p) !== TG_SOORT[0]).sort((a, b) => b.vertrekken - a.vertrekken);
+  const soorten = TG_SOORT.filter((s) => F.gebieden.some((g) => tg(g.code)[s.k]));
+  return `${strip(F.gebieden.map((g) => {
+      const t = tg(g.code);
+      return [pct(t.beide, t.perrons), `van de perrons in ${g.naam} is toegankelijk bij een motorische én een visuele beperking`, `${pct(t.vertrekkenBeide, t.vertrekken)} van de vertrekken`];
+    }))}
+    <h4 style="margin-top:18px">Motorisch, visueel of allebei</h4>
+    <p style="font-size:13.5px">Het beleidskader noemt beide: ‘sommige haltes zijn al wel deels toegankelijk, bijvoorbeeld alleen motorisch of alleen voor mensen met een visuele beperking’. De meeste perrons die het half zijn, zijn alleen motorisch toegankelijk. Ze hebben volgens het CHB wel een geleidelijn; welk onderdeel voor een visuele beperking dan ontbreekt, zegt de export niet eenduidig. Dat weet de wegbeheerder.</p>
+    <div class="scroll"><table class="data" data-open style="min-width:480px"><thead><tr><th>Perron is toegankelijk</th>${F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("")}</tr></thead><tbody>
+      ${soorten.map((s) => `<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1px solid var(--asfalt);margin-right:6px;background:${s.kleur}"></i>${s.t}</td>${F.gebieden.map((g) => `<td class="getal">${tg(g.code)[s.k]} <span class="toel">(${pct(tg(g.code)[s.k], tg(g.code).perrons)})</span></td>`).join("")}</tr>`).join("")}
+      <tr><td><b>Perrons</b></td>${F.gebieden.map((g) => `<td class="getal"><b>${tg(g.code).perrons}</b></td>`).join("")}</tr>
+      <tr><td>Motorisch toegankelijk, met of zonder geleidelijn</td>${F.gebieden.map((g) => `<td class="getal">${pct(tg(g.code).beide + tg(g.code).alleenRolstoel, tg(g.code).perrons)}</td>`).join("")}</tr>
+      <tr><td>Vertrekken vanaf een perron dat allebei is</td>${F.gebieden.map((g) => `<td class="getal">${pct(tg(g.code).vertrekkenBeide, tg(g.code).vertrekken)}</td>`).join("")}</tr>
+    </tbody></table></div>
+    <h4 style="margin-top:22px">Per perron</h4>
+    <p style="font-size:13.5px">Elk punt is een perron, zo groot als het aantal vertrekken: de grote punten zijn de haltes die volgens het beleidskader voorgaan. De buurten zijn gekleurd naar het aandeel vertrekken vanaf een perron dat allebei is. Wijs een punt aan voor de maten erachter. Bij een halte liggen de perrons dicht opeen: zoom in met de knoppen, met Ctrl en scrollen of door te knijpen, en sleep om te verschuiven.</p>
+    <div class="zoomkader">${buurtKaart("tg-kaart", "Vertrekken vanaf een toegankelijk perron", AANDEEL_KL, tgBuurtPct, tgHover, perronPunten)}${zoomKnoppen("tg-kaart")}</div>
+    ${perronLegenda()}
+    <h4 style="margin-top:22px">De drukste perrons die het nog niet zijn</h4>
+    <p style="font-size:13.5px">Perrons die niet allebei zijn, op aantal vertrekken. Hoogte: de perronhoogte in het CHB; voor een bushalte is 18 cm de landelijke maat. Het CHB weegt meer mee dan de hoogte, zoals de ruimte bij de deur; daarom staat een perron van 18 cm soms toch als niet toegankelijk.</p>
+    <div class="scroll"><table class="data" data-open style="min-width:640px">${perronKop}<tbody>${perronRijen(nog.slice(0, 10))}</tbody></table></div>
+    <div class="scroll"><table class="data" style="min-width:640px">${perronKop}<tbody>${perronRijen(nog.slice(10))}</tbody></table></div>
+    <div class="foot">Bron: ${TG.bron}, export van ${datum(TG.export)}; het oordeel zoals het CHB het geeft, op basis van wat de wegbeheerder invoert. Vertrekken: alle ritten die er op ${tgDag()} vertrekken (GTFS, ${TG.gtfs}), elke richting en lijn apart. Alleen bus, tram en metro; perrons zonder vertrek die dag tellen niet mee. Kader: Beleidskader Toegankelijk Openbaar Vervoer, MRDH (2024).</div>`;
+}
+
 /* ---------- buurtkaart: alle OV-cijfers van één buurt ---------- */
 
 // Kies je een buurt (klik op een kaart of in een tabel, of in de buurtkiezer bovenaan), dan
@@ -1033,6 +1263,7 @@ function buurtProfiel(naam) {
     <table class="data bk-cijfers"><thead><tr><th>Van de woningen</th><th class="getal">Aandeel</th></tr></thead><tbody>${cijfers
       .map(([t, v, s]) => `<tr><td><a href="#i-${s}">${t}</a></td><td class="getal">${v == null ? "–" : `${fmt(v, 1)}%`}</td></tr>`)
       .join("")}</tbody></table>
+    ${TG && tgBuurt(b)?.perrons ? `<p class="toel" style="margin-top:6px"><a href="#i-ov-toegankelijk">Perrons in de buurt</a>: ${tgBuurt(b).beide} van ${tgBuurt(b).perrons} toegankelijk bij een motorische én een visuele beperking.</p>` : ""}
     ${lijnen.length
       ? `<h4>Lijnen op loopafstand</h4>
     <table class="data"><thead><tr><th>Lijn</th><th class="getal">Woningen</th><th class="getal">Spits</th><th class="getal">Dal</th><th class="getal">Avond</th></tr></thead><tbody>${lijnen
@@ -1415,6 +1646,7 @@ const VISUEEL = {
   "ov-vervoersmix": vervoersmix,
   "ov-richting": richtingCheck,
   "ov-storing": storingstest,
+  "ov-toegankelijk": () => (TG ? veilig("toegankelijk", toegankelijkheid) : ontbreektBestand("data/toegankelijkheid.js", "scripts/bouw_toegankelijkheid.py")),
 };
 
 /* ---------- kaart en tabel koppelen ---------- */
@@ -1546,7 +1778,7 @@ function blok(ind) {
 
 const INTRO = {
   parkeren: "Hoe vol staan straten en stallingen, hoe tevreden zijn bewoners, en hoeveel ruimte kost parkeren? Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. De cijfers staan hier zonder normen; het oordeel staat in het overzicht.",
-  ov: "Hoe goed worden de woningen bediend door bus, tram, metro en trein? Het gaat om het aanbod volgens de dienstregeling, niet om gebruik of stiptheid. Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. Normen voor frequentie en loopafstand zijn in te stellen.",
+  ov: "Hoe goed worden de woningen bediend door bus, tram, metro en trein, en kan iedereen bij de halte instappen? Het gaat om het aanbod volgens de dienstregeling, niet om gebruik of stiptheid. Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. Normen voor frequentie en loopafstand zijn in te stellen.",
 };
 // Alleen de OV-viewer heeft cijfers per buurt voor elke indicator.
 const KIEZER = { ov: () => buurtKiezer() };

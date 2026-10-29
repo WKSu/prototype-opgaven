@@ -105,6 +105,19 @@ const UIT_HANDMATIG = {
       };
     },
   },
+  // Perrons van bus, tram en metro met een vertrek op de peildatum, uit het Centraal Haltebestand.
+  "ov-toegankelijk": {
+    label: "CHB",
+    geladen: () => typeof TOEGANKELIJK !== "undefined",
+    fn: (code) => {
+      const g = TOEGANKELIJK.gebieden[code];
+      if (!g.perrons) return { v: null, toel: "geen perrons in het CHB" };
+      return {
+        v: Math.round((100 * g.beide) / g.perrons),
+        toel: `van ${g.perrons} · ${fmt((100 * g.vertrekkenBeide) / g.vertrekken)}% van de vertrekken · ${fmt((100 * (g.beide + g.alleenRolstoel)) / g.perrons)}% motorisch toegankelijk`,
+      };
+    },
+  },
   // Som over som, alleen subbuurten met woonadressen: daar gaat het straatprofiel over.
   "ruimtebeslag-parkeren": {
     label: "BGT",
