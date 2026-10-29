@@ -22,6 +22,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
 | `data/woningbouw.js` | `const WONINGBOUW`: woningbouwprojecten uit BoPro per subbuurt, context in de Parkeren-viewer, gegenereerd door `scripts/bouw_woningbouw.py` |
 | `data/pr.js` | `const PR`: P+R-terreinen met capaciteit uit het Nationaal Parkeerregister (RDW), opgehaald met `scripts/haal_npr.py` |
+| `data/toegankelijkheid.js` | `const TOEGANKELIJK`: toegankelijkheid per perron van bus, tram en metro uit het Centraal Haltebestand, met vertrekken per perron, gegenereerd door `scripts/bouw_toegankelijkheid.py` |
 | `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
 | `js/thema.js` | themaviewers: kaarten, tabellen, schuifjes en uurprofiel; tabellen boven 8 rijen klappen in. In de OV-viewer opent een gekozen buurt een buurtkaart met al zijn cijfers |
@@ -104,6 +105,27 @@ kaart toont wie dan zonder bruikbaar OV zit. De groepen worden daarvoor over het
 het verlies per gebied is gelijk aan dat in de tabel per gebied. Een gekozen buurt (klik, of de
 kiezer bovenaan) geldt voor alle kaarten en opent een buurtkaart met de cijfers bij de huidige
 instellingen en de lijnen op loopafstand, met hun vertrekken per dagdeel.
+
+### Toegankelijke perrons (OV)
+
+```bash
+uv run scripts/bouw_toegankelijkheid.py     # na bouw_datalade.py
+```
+
+Per perron (quay) van bus, tram en metro het oordeel van het Centraal Haltebestand (CHB): toegankelijk
+bij een motorische beperking en bij een visuele beperking, met perronhoogte en geleidelijn. De
+dagelijkse export staat op <https://data.ndovloket.nl/haltes/> (open data, DOVA); zet
+`ExportCHB_<datum>.xml.gz` in `data_manual/chb/`, het script neemt de nieuwste. Een perron telt alleen
+mee als er op de peildatum van de viewer iets vertrekt, volgens dezelfde GTFS-feed als het
+uurprofiel. Een GTFS-halte hoort bij het dichtstbijzijnde CHB-perron van dezelfde soort: binnen 25 m
+voor bus en tram (een bus kan aan een tramperron stoppen), binnen 150 m en één op één voor de metro,
+want de punten liggen op verschillende plekken langs het lange perron. Vindt meer dan 2% van de
+vertrekken in het rayon geen perron, dan breekt het script af.
+
+Kader: *Beleidskader Toegankelijk Openbaar Vervoer* (MRDH, 2024), in
+`data_manual/beleidskader toegankelijk ov/`. Het noemt geen percentage, alleen het streven naar volledig
+toegankelijk OV in 2040, en geeft de drukst gebruikte haltes voorrang. De indicator heeft daarom geen
+norm; de viewer zet de perrons op aantal vertrekken. Treinperrons (ProRail) staan niet in het CHB.
 
 ## Parkeertellingen bijwerken
 

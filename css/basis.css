@@ -181,6 +181,16 @@ ol.inhoudsopgave .oordeel{font-size:11px;margin-left:4px}
 .legenda-rij i.streep.stippel{border-top:1.5px dashed var(--asfalt-zacht)}
 .legenda-rij i.arcering{background:repeating-linear-gradient(45deg,var(--stil) 0 1.4px,var(--wit) 1.4px 6px)}
 .knoppen.laag{margin:4px 0 2px}
+/* Inzoomen: lijnen houden hun dikte op het scherm. Verticaal vegen blijft de pagina scrollen
+   tot je ingezoomd bent; daarna verschuift een vinger de kaart. */
+.zoomkader{position:relative}
+.zoomknoppen{position:absolute;left:8px;bottom:8px;display:flex;gap:4px}
+.zoomknoppen button{background:var(--wit);border:1px solid var(--asfalt-zacht);border-radius:3px;min-width:32px;height:32px;padding:0 9px;cursor:pointer;font:inherit;font-size:13px;font-weight:700}
+.zoomknoppen button[data-zoom="2"],.zoomknoppen button[data-zoom="0.5"]{font-size:19px;line-height:1}
+.zoomknoppen button:hover{background:var(--beton)}
+.kaart-svg.zoombaar{touch-action:pan-y;cursor:grab}
+.kaart-svg.zoombaar.ingezoomd{touch-action:none}
+.kaart-svg.zoombaar :not(text){vector-effect:non-scaling-stroke}
 /* display:flex van .legenda-rij gaat anders voor op het hidden-attribuut. */
 .legenda-rij[hidden]{display:none}
 .knoppen button:disabled{color:var(--stil);cursor:not-allowed;background:var(--beton)}
