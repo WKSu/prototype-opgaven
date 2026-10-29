@@ -19,6 +19,8 @@ const WB = typeof WONINGBOUW !== "undefined" ? WONINGBOUW : null;
 const PRR = typeof PR !== "undefined" ? PR : null;
 // Toegankelijkheid per perron uit het Centraal Haltebestand: open data, maar een eigen bouwstap.
 const TG = typeof TOEGANKELIJK !== "undefined" ? TOEGANKELIJK : null;
+// Fietsnetwerk, mazen en VRI's: levering van het themateam Fiets.
+const FT = typeof FIETS !== "undefined" ? FIETS : null;
 const THEMA = F && F.themas.find((t) => t.sleutel === document.body.dataset.thema);
 // Extra gebieden (de Spaanse Polder) staan in de parkeertelling, niet in het rayon: wel op de
 // kaart en in de tabellen, niet in de gebiedscijfers van het overzicht.
@@ -1235,6 +1237,148 @@ function toegankelijkheid() {
     <div class="foot">Bron: ${TG.bron}, export van ${datum(TG.export)}; het oordeel zoals het CHB het geeft, op basis van wat de wegbeheerder invoert. Vertrekken: alle ritten die er op ${tgDag()} vertrekken (GTFS, ${TG.gtfs}), elke richting en lijn apart. Alleen bus, tram en metro; perrons zonder vertrek die dag tellen niet mee. Kader: Beleidskader Toegankelijk Openbaar Vervoer, MRDH (2024).</div>`;
 }
 
+/* ---------- fiets ---------- */
+
+// Stand van het schuifje voor de maaswijdte; begint op de afspraak uit FUNCTIONEREN.fietsKeuzes.
+const S_FIETS = F && F.fietsKeuzes ? { ...F.fietsKeuzes } : {};
+const NIVEAU = { fiets_primary: "primair", fiets_secondary: "secundair", fiets_tertiary: "tertiair" };
+const fietsKm = (code) => Object.values(FT.gebieden[code].km).reduce((a, n) => a + n, 0);
+// De buurten als lichte ondergrond: op de fietskaarten gaat het om de routes en vlakken erop.
+const NEUTRAAL = { kleur: () => "rgba(255,255,255,.3)", legenda: "" };
+const buurtNaam = (b) => `${b.naam} (${GEBIED[b.gebied]})`;
+const netwerkKaart = (id, titel, laag) =>
+  `<div class="zoomkader">${buurtKaart(id, titel, NEUTRAAL, () => null, buurtNaam, laag)}${zoomKnoppen(id)}</div>`;
+// De netwerkkaart fiets: dikker naarmate het niveau hoger is.
+const netwerkLaag = (xy) =>
+  FT.netwerktypen.map((t) => `<path class="fnet ${t}" d="${lijnPad(xy, FT.netwerk[t])}"></path>`).join("");
+const netwerkLegenda = (extra = "") =>
+  `<div class="legenda-rij"><b>Netwerkkaart fiets</b>${FT.netwerktypen
+    .map((t) => `<span><i class="streep ${t}"></i>${NIVEAU[t]}</span>`)
+    .join("")}${extra}</div>`;
+
+/* maaswijdte */
+
+const MAAS_IJK = [250, 500, 1000];
+const maasKleur = (m) => (m.breedteM > S_FIETS.maasM ? "color-mix(in srgb, var(--schie) 82%, var(--asfalt))" : "color-mix(in srgb, var(--schie) 22%, var(--wit))");
+const maasTip = (m) => `Maas bij ${m.buurt} (${GEBIED[m.gebied]}): ongeveer ${fmt(m.breedteM)} m breed (omtrek ${fmt(m.omtrekM)} m, ${fmt(m.ha, 1)} ha)`;
+const maasLaag = (xy) =>
+  `<g class="mazen">${FT.mazen
+    .map((m) => `<path class="maas" d="${vlakPad(xy, [m.vlak])}" data-breedte="${m.breedteM}" data-koppel="${sleutel("maas", m.id)} ${sleutel("buurt", m.buurt)}" fill="${maasKleur(m)}" data-tip="${attr(maasTip(m))}"></path>`)
+    .join("")}</g>`;
+const breedIn = (code, grens) => FT.mazen.filter((m) => m.gebied === code && m.breedteM > grens);
+
+function maaswijdte() {
+  return `<div class="normen" aria-label="Grens instellen">
+      <label>Breder dan <b id="maas-w"></b>
+        <input type="range" id="maas-m" min="250" max="1000" step="50" value="${S_FIETS.maasM}" list="maas-ijk"></label>
+      <datalist id="maas-ijk">${MAAS_IJK.map((m) => `<option value="${m}"></option>`).join("")}</datalist>
+      <button type="button" class="terug" id="maas-terug">Afspraak (${F.fietsKeuzes.maasM} m)</button>
+      <div class="ijk">De afspraak van het themateam is 500 m. De eerste uitwerking toetste de omtrek aan 1000 m (‘500 + 500’), maar de omtrek is de hele rand, vier zijden: dat komt neer op een maas van ongeveer 250 m breed. Zet het schuifje op 250 m om die uitkomst te zien.</div>
+    </div>
+    <div id="maas-strip"></div>
+    <h4 style="margin-top:18px">Hoe gevoelig is dat voor de grens?</h4>
+    <div class="scroll"><table class="data" data-open style="min-width:480px"><thead><tr><th>Mazen breder dan</th>${F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("")}</tr></thead><tbody>
+      ${MAAS_IJK.map((m) => `<tr><td>${fmt(m)} m</td>${F.gebieden.map((g) => `<td class="getal">${breedIn(g.code, m).length}</td>`).join("")}</tr>`).join("")}
+      <tr><td>Alle mazen</td>${F.gebieden.map((g) => `<td class="getal">${fmt(FT.gebieden[g.code].mazen)}</td>`).join("")}</tr>
+    </tbody></table></div>
+    <h4 style="margin-top:22px">Waar liggen ze?</h4>
+    <p style="font-size:13.5px">Elk vlak is een maas: het gebied dat fietsroutes omsluiten. Donker is breder dan de grens. Mazen onder ${fmt(FT.keuzes.maasKleinstM)} m staan niet op de kaart; daar is het netwerk fijnmazig. Zoom in om de kleine mazen te zien, wijs een maas aan voor zijn maat.</p>
+    ${netwerkKaart("maas-kaart", "Mazen van het fietsnetwerk", maasLaag)}
+    <div class="legenda-rij"><b>Mazen</b><span><i style="background:color-mix(in srgb, var(--schie) 82%, var(--asfalt))"></i><span id="maas-leg-breed"></span></span><span><i style="background:color-mix(in srgb, var(--schie) 22%, var(--wit))"></i><span id="maas-leg-smal"></span></span></div>
+    <h4 style="margin-top:22px">De breedste mazen</h4>
+    <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>Maas bij</th><th>Gebied</th><th class="getal">Breed (m)</th><th class="getal">Omtrek (m)</th><th class="getal">Oppervlak (ha)</th></tr></thead><tbody id="maas-rijen"></tbody></table></div>
+    <div class="foot">Bron: ${FT.bron}. Mazen uit het befietsbare netwerk van OpenStreetMap, in QGIS samengevoegd en tot vlakken gemaakt; de bewerking is gedaan met hulp van ChatGPT en nog niet nagelopen. Een maas hoort bij de buurt en het gebied waarmee hij het meest overlapt.</div>`;
+}
+
+function tekenMazen() {
+  const g = S_FIETS.maasM;
+  zetWaarde("maas-w", `${fmt(g)} m`);
+  zetWaarde("maas-leg-breed", `breder dan ${fmt(g)} m`);
+  zetWaarde("maas-leg-smal", `${fmt(FT.keuzes.maasKleinstM)}–${fmt(g)} m`);
+  document.getElementById("maas-strip").innerHTML = strip(
+    F.gebieden.map((x) => {
+      const breed = breedIn(x.code, g), ha = breed.reduce((a, m) => a + m.ha, 0);
+      return [String(breed.length), `mazen in ${x.naam} breder dan ${fmt(g)} m`, `${fmt((100 * ha) / FT.gebieden[x.code].mazenHa)}% van het oppervlak in mazen`];
+    })
+  );
+  document.querySelectorAll("#maas-kaart path.maas").forEach((p) => {
+    p.setAttribute("fill", maasKleur({ breedteM: Number(p.dataset.breedte) }));
+  });
+  document.getElementById("maas-rijen").innerHTML = FT.mazen
+    .filter((m) => m.breedteM > g)
+    .map((m) => `<tr data-koppel="${sleutel("maas", m.id)} ${sleutel("buurt", m.buurt)}"><td>${m.buurt}</td><td>${GEBIED[m.gebied]}</td><td class="getal">${fmt(m.breedteM)}</td><td class="getal">${fmt(m.omtrekM)}</td><td class="getal">${fmt(m.ha, 1)}</td></tr>`)
+    .join("");
+}
+NA_RENDER.push(function maasSchuifje() {
+  const s = document.getElementById("maas-m");
+  if (!s) return;
+  s.oninput = () => {
+    S_FIETS.maasM = Number(s.value);
+    tekenMazen();
+  };
+  document.getElementById("maas-terug").onclick = () => {
+    S_FIETS.maasM = F.fietsKeuzes.maasM;
+    s.value = S_FIETS.maasM;
+    tekenMazen();
+  };
+  tekenMazen();
+});
+
+/* ontbrekende schakels */
+
+const schakelTip = (s) => `${hoofdletter(NIVEAU[s.type])}e schakel bij ${s.bij}: ${fmt(s.lengteM)} m, ${s.buurt} (${GEBIED[s.gebied]})`;
+// Rood mag hier: ontbrekende schakels zijn rood volgens de afspraak van het themateam Fiets.
+const schakelLaag = (xy) =>
+  netwerkLaag(xy) +
+  FT.schakels.map((s, i) => `<path class="schakel" d="${lijnPad(xy, s.lijn)}" data-koppel="${sleutel("schakel", i)} ${sleutel("buurt", s.buurt)}" data-tip="${attr(schakelTip(s))}"></path>`).join("");
+
+function schakels() {
+  const per = (code) => FT.schakels.filter((s) => s.gebied === code);
+  return `${strip(F.gebieden.map((g) => [String(per(g.code).length), `ontbrekende schakels in ${g.naam}`, `${fmt(per(g.code).reduce((a, s) => a + s.lengteM, 0))} m van ${fmt(fietsKm(g.code))} km netwerkkaart`]))}
+    <h4 style="margin-top:18px">De netwerkkaart per niveau</h4>
+    <div class="scroll"><table class="data" data-open style="min-width:480px"><thead><tr><th>Kilometer</th>${F.gebieden.map((g) => `<th class="getal">${g.naam}</th>`).join("")}</tr></thead><tbody>
+      ${FT.netwerktypen.map((t) => `<tr><td>${hoofdletter(NIVEAU[t])}</td>${F.gebieden.map((g) => `<td class="getal">${fmt(FT.gebieden[g.code].km[t], 1)}</td>`).join("")}</tr>`).join("")}
+      <tr><td>Ontbreekt nog</td>${F.gebieden.map((g) => `<td class="getal">${fmt(per(g.code).reduce((a, s) => a + s.lengteM, 0) / 1000, 1)}</td>`).join("")}</tr>
+    </tbody></table></div>
+    <h4 style="margin-top:22px">Waar ontbreken ze?</h4>
+    <p style="font-size:13.5px">Rood gestreept: een schakel van de netwerkkaart die er nog niet ligt. Wijs hem aan voor de straten aan weerszijden en de lengte.</p>
+    ${netwerkKaart("schakel-kaart", "Netwerkkaart fiets en ontbrekende schakels", schakelLaag)}
+    ${netwerkLegenda(`<span><i class="streep schakel"></i>ontbreekt</span>`)}
+    <div class="scroll"><table class="data" data-open style="min-width:560px"><thead><tr><th>Schakel tussen</th><th>Buurt</th><th>Gebied</th><th>Niveau</th><th class="getal">Lengte (m)</th></tr></thead><tbody>
+      ${FT.schakels.map((s, i) => `<tr data-koppel="${sleutel("schakel", i)} ${sleutel("buurt", s.buurt)}"><td>${s.bij}</td><td>${s.buurt}</td><td>${GEBIED[s.gebied]}</td><td>${NIVEAU[s.type]}</td><td class="getal">${fmt(s.lengteM)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="foot">Bron: netwerkkaart fiets op het NWB (oktober 2025), levering themateam Fiets. Stukjes ontbrekende schakel die binnen ${FT.keuzes.schakelSamenM} m van elkaar liggen, zijn één schakel; de straatnamen zijn die van het dichtstbijzijnde wegvak aan elk eind.</div>`;
+}
+
+/* stopkansen */
+
+const vriTip = (v) => `${v.naam}: ${v.soort === "VRI" ? "verkeerslicht" : v.soort.toLowerCase()}, ${v.opNetwerk ? "op" : "niet op"} de netwerkkaart fiets${v.gebied ? ` (${GEBIED[v.gebied]})` : ""}`;
+const vriLaag = (xy) =>
+  netwerkLaag(xy) +
+  FT.vris
+    .map((v, i) => {
+      const [x, y] = xy([v.lon, v.lat]);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${v.opNetwerk ? "var(--asfalt)" : "var(--wit)"}" style="stroke:var(--asfalt);stroke-width:1.2" data-koppel="${sleutel("vri", i)}" data-tip="${attr(vriTip(v))}"></circle>`;
+    })
+    .join("");
+
+function stopkansen() {
+  const op = (code) => FT.vris.filter((v) => v.gebied === code && v.opNetwerk).length;
+  return `${strip(F.gebieden.map((g) => [fmt((10 * op(g.code)) / fietsKm(g.code), 1), `VRI’s per 10 km netwerkkaart fiets in ${g.naam}`, `${op(g.code)} op ${fmt(fietsKm(g.code))} km`]))}
+    <h4 style="margin-top:18px">Waar staan ze?</h4>
+    <p style="font-size:13.5px">Zwart: een VRI binnen ${FT.keuzes.vriOpNetwerkM} m van een route van de netwerkkaart; wit: verder weg. De eerste uitwerking deelde alle ${FT.vris.length} VRI’s door alle wegen in het rayon (ongeveer 786 km); hier tellen alleen de VRI’s en kilometers van de netwerkkaart.</p>
+    ${netwerkKaart("vri-kaart", "Verkeerslichten op het fietsnetwerk", vriLaag)}
+    ${netwerkLegenda(`<span><i class="rond" style="background:var(--asfalt)"></i>VRI op de netwerkkaart</span><span><i class="rond" style="background:var(--wit)"></i>niet</span>`)}
+    <div class="scroll"><table class="data" style="min-width:520px"><thead><tr><th>VRI</th><th>Soort</th><th>Gebied</th><th>Op de netwerkkaart</th></tr></thead><tbody>
+      ${FT.vris
+        .map((v, i) => ({ ...v, i }))
+        .sort((a, b) => b.opNetwerk - a.opNetwerk || a.naam.localeCompare(b.naam, "nl"))
+        .map((v) => `<tr data-koppel="${sleutel("vri", v.i)}"><td>${v.naam}</td><td>${v.soort}</td><td>${v.gebied ? GEBIED[v.gebied] : "–"}</td><td>${v.opNetwerk ? "ja" : "nee"}</td></tr>`)
+        .join("")}
+    </tbody></table></div>
+    <div class="foot">Bron: lijst VRI-vervangingen gemeente Rotterdam (januari 2023), ${FT.vris.length} installaties in en rond het rayon, waaronder een knipperlicht en een doseerinstallatie. Of de lijst alle VRI’s bevat, is niet nagegaan.</div>`;
+}
+
 /* ---------- buurtkaart: alle OV-cijfers van één buurt ---------- */
 
 // Kies je een buurt (klik op een kaart of in een tabel, of in de buurtkiezer bovenaan), dan
@@ -1647,6 +1791,9 @@ const VISUEEL = {
   "ov-richting": richtingCheck,
   "ov-storing": storingstest,
   "ov-toegankelijk": () => (TG ? veilig("toegankelijk", toegankelijkheid) : ontbreektBestand("data/toegankelijkheid.js", "scripts/bouw_toegankelijkheid.py")),
+  "fiets-maaswijdte": () => (FT ? veilig("maaswijdte", maaswijdte) : ontbreektBestand("data/fiets.js", "scripts/bouw_fiets.py")),
+  "fiets-schakels": () => (FT ? veilig("schakels", schakels) : ontbreektBestand("data/fiets.js", "scripts/bouw_fiets.py")),
+  "fiets-vri": () => (FT ? veilig("stopkansen", stopkansen) : ontbreektBestand("data/fiets.js", "scripts/bouw_fiets.py")),
 };
 
 /* ---------- kaart en tabel koppelen ---------- */
@@ -1779,6 +1926,7 @@ function blok(ind) {
 const INTRO = {
   parkeren: "Hoe vol staan straten en stallingen, hoe tevreden zijn bewoners, en hoeveel ruimte kost parkeren? Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. De cijfers staan hier zonder normen; het oordeel staat in het overzicht.",
   ov: "Hoe goed worden de woningen bediend door bus, tram, metro en trein, en kan iedereen bij de halte instappen? Het gaat om het aanbod volgens de dienstregeling, niet om gebruik of stiptheid. Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. Normen voor frequentie en loopafstand zijn in te stellen.",
+  fiets: "Is het fietsnetwerk fijnmazig en af, en hoe vaak sta je voor een verkeerslicht? Per indicator lees je wat hij zegt, hoe hij gemeten is en waar je op let. De normen zijn afspraken van het themateam Fiets; hier staan de cijfers zonder oordeel, dat staat in het overzicht. De grens voor de maaswijdte is in te stellen. Fietsparkeren staat in de Parkeren-viewer.",
 };
 // Alleen de OV-viewer heeft cijfers per buurt voor elke indicator.
 const KIEZER = { ov: () => buurtKiezer() };

@@ -118,6 +118,36 @@ const UIT_HANDMATIG = {
       };
     },
   },
+  // Fiets: levering themateam Fiets. Maaswijdte bij de standaardgrens uit FUNCTIONEREN.fietsKeuzes;
+  // in de Fiets-viewer is die in te stellen.
+  "fiets-maaswijdte": {
+    label: "OSM",
+    geladen: () => typeof FIETS !== "undefined",
+    fn: (code) => {
+      const grens = F.fietsKeuzes.maasM, g = FIETS.gebieden[code];
+      const breed = FIETS.mazen.filter((m) => m.gebied === code && m.breedteM > grens);
+      const ha = breed.reduce((a, m) => a + m.ha, 0);
+      return { v: breed.length, toel: `breder dan ${grens} m · ${fmt((100 * ha) / g.mazenHa)}% van het oppervlak` };
+    },
+  },
+  "fiets-schakels": {
+    label: "netwerkkaart",
+    geladen: () => typeof FIETS !== "undefined",
+    fn: (code) => {
+      const s = FIETS.schakels.filter((x) => x.gebied === code);
+      const km = Object.values(FIETS.gebieden[code].km).reduce((a, n) => a + n, 0);
+      return { v: s.length, toel: `${fmt(s.reduce((a, x) => a + x.lengteM, 0))} m ontbreekt · ${fmt(km)} km netwerkkaart` };
+    },
+  },
+  "fiets-vri": {
+    label: "VRI-lijst",
+    geladen: () => typeof FIETS !== "undefined",
+    fn: (code) => {
+      const n = FIETS.vris.filter((v) => v.gebied === code && v.opNetwerk).length;
+      const km = Object.values(FIETS.gebieden[code].km).reduce((a, x) => a + x, 0);
+      return { v: (10 * n) / km, toel: `${n} ${n === 1 ? "VRI" : "VRI’s"} op ${fmt(km)} km netwerkkaart` };
+    },
+  },
   // Som over som, alleen subbuurten met woonadressen: daar gaat het straatprofiel over.
   "ruimtebeslag-parkeren": {
     label: "BGT",
