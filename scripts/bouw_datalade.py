@@ -61,6 +61,14 @@ LIJN_MIN_PCT = (
     1  # de buurtkaart noemt een lijn vanaf 1% van de woonadressen van de buurt
 )
 KNOOP_M = 150  # haltes binnen 150 m van elkaar zijn één overstappunt op de kaart
+# Frequentie, tweede telling: lijnen die vanaf een halte dezelfde route rijden, tellen samen
+# (voor een reis langs dat traject neem je de eerste die komt). Samen = halverwege en aan het
+# eind van het gedeelde stuk liggen ze nog geen 150 m uit elkaar. Hoe lang dat stuk moet zijn,
+# is een keuze die voor bussen veel uitmaakt; de viewer laat beide zien, 2 km is de standaard.
+# Zie docs/frequentie-meerdere-lijnen.md.
+TRAJECT_LENGTES_M = (1000, 2000)
+TRAJECT_STANDAARD_M = 2000
+TRAJECT_TOL_M = 150
 
 
 def lees_const(pad: Path):
@@ -254,6 +262,77 @@ def richtingen(halte, delen) -> set[str]:
             if afstand >= 500:
                 uit.add(windrichting(p, deel[k]))
     return uit
+
+
+def lijngeometrie(html) -> dict:
+    """Route per lijn uit de verkenner: delen (meestal één per rijrichting) van punten."""
+    return {
+        f["properties"]["i"]: f["geometry"]["coordinates"]
+        for f in json_blok(html, "d-lijnen")["features"]
+    }
+
+
+def vervolg(halte, delen, lengte) -> list[list]:
+    """Per rijrichting waar de lijn vanaf deze halte na de helft van `lengte` en na `lengte` is.
+    Zelfde wandeling langs de route als richtingen(); een richting die eerder ophoudt
+    (eindpunt), telt niet."""
+    p = (halte["lon"], halte["lat"])
+    uit = []
+    for deel in delen:
+        j = min(range(len(deel)), key=lambda k: meter(p, deel[k]))
+        if meter(p, deel[j]) > 250:
+            continue
+        for stap in (1, -1):
+            k, afstand, punten = j, 0.0, []
+            for doel in (lengte / 2, lengte):
+                while 0 <= k + stap < len(deel):
+                    stuk = meter(deel[k], deel[k + stap])
+                    if afstand + stuk >= doel:
+                        # Precies op de afstand, tussen twee routepunten in: de routes hebben
+                        # niet overal evenveel punten.
+                        t = (doel - afstand) / stuk if stuk else 0
+                        a_, b_ = deel[k], deel[k + stap]
+                        punten.append(
+                            (a_[0] + t * (b_[0] - a_[0]), a_[1] + t * (b_[1] - a_[1]))
+                        )
+                        break
+                    afstand += stuk
+                    k += stap
+                else:
+                    break
+            if len(punten) == 2:
+                uit.append(punten)
+    return uit
+
+
+def trajecten(halte, lijnen_hier, geometrie, lengte) -> list[set]:
+    """Groepen lijnen die vanaf deze halte samen rijden: in een van hun rijrichtingen liggen ze
+    halverwege en na `lengte` nog geen TRAJECT_TOL_M uit elkaar. Elke lijn is ook zijn eigen
+    groep, zodat de som nooit onder de beste lijn uitkomt."""
+    sporen = [
+        (li, sp)
+        for li in lijnen_hier
+        for sp in vervolg(halte, geometrie.get(li, []), lengte)
+    ]
+    ouder = list(range(len(sporen)))
+
+    def wortel(i):
+        while ouder[i] != i:
+            i = ouder[i]
+        return i
+
+    for i, (_, a) in enumerate(sporen):
+        for j in range(i):
+            b = sporen[j][1]
+            if all(meter(x, y) <= TRAJECT_TOL_M for x, y in zip(a, b)):
+                ouder[wortel(i)] = wortel(j)
+    groepen = {}
+    for i, (li, _) in enumerate(sporen):
+        groepen.setdefault(wortel(i), set()).add(li)
+    uniek = {frozenset(g) for g in groepen.values()} | {
+        frozenset([li]) for li in lijnen_hier
+    }
+    return [set(g) for g in uniek]
 
 
 def corridors(lijnen, gebruikt) -> list[set]:
@@ -666,6 +745,7 @@ def ov(
     loopbaarheid_html: Path,
     gtfs: Path | None = None,
     peildatum: dt.date | None = None,
+    vorige: Path | None = None,
 ) -> dict:
     html = loopbaarheid_html.read_text(encoding="utf-8")
     data = json_blok(html, "d-data")
@@ -729,6 +809,60 @@ def ov(
         for h in data["haltes"]
         for li, f in zip(data["hlk"][h["id"]], data["hlf"][h["id"]])
     }
+    if any(h["id"] != i for i, h in enumerate(data["haltes"])):
+        raise ValueError("loopbaarheid-ov: halte-id's zijn geen volgnummers meer")
+
+    # Tweede telling voor de frequentie: lijnen op één traject samen (zie trajecten()). Per
+    # adres de hoogste som over één traject, binnen de lijnen die het op loopafstand heeft.
+    geometrie = lijngeometrie(html)
+    groepen_bij, samen_bij = {}, {}
+
+    def groepen(h_id, lengte):
+        if (h_id, lengte) not in groepen_bij:
+            groepen_bij[(h_id, lengte)] = trajecten(
+                data["haltes"][h_id], data["hlk"][h_id], geometrie, lengte
+            )
+        return groepen_bij[(h_id, lengte)]
+
+    def samen_op_traject(paren, lengte):
+        if (paren, lengte) not in samen_bij:
+            per_halte = {}
+            for h, li in paren:
+                per_halte.setdefault(h, set()).add(li)
+            samen_bij[(paren, lengte)] = [
+                max(
+                    sum(freq[(h, li)][j] for li in g & lijnen)
+                    for h, lijnen in per_halte.items()
+                    for g in groepen(h, lengte)
+                )
+                for j in dagdeel.values()
+            ]
+        return samen_bij[(paren, lengte)]
+
+    def halte_traject(h_id, lengte):
+        return {
+            k: round(
+                max(
+                    sum(freq[(h_id, li)][j] for li in g) for g in groepen(h_id, lengte)
+                ),
+                1,
+            )
+            for k, j in dagdeel.items()
+        }
+
+    def traject_lijnen(hs, lengte):
+        """De lijnen van het drukste gedeelde traject van een overstappunt (overdag), voor de
+        hovertekst; leeg als er niets samen rijdt."""
+        dal = dagdeel["dal"]
+        g, _ = max(
+            ((g, h) for h in hs for g in groepen(h["id"], lengte)),
+            key=lambda x: sum(freq[(x[1]["id"], li)][dal] for li in x[0]),
+        )
+        if len(g) < 2:
+            return []
+        return sorted(
+            f"{data['lijnen'][li]['mode']} {data['lijnen'][li]['nm']}" for li in g
+        )
 
     # Dekking: woonadressen per buurt naar loopafstand tot bus/tram en tot metro/trein, in
     # klassen. Klasse k = afstand tot en met k stappen; de laatste klasse is 'verder'. De viewer
@@ -736,7 +870,7 @@ def ov(
     def klasse(d, stap, maximum):
         return min(-(-d // stap), maximum // stap + 1)
 
-    dekking, bediening, lijn_buurt = {}, {}, {}
+    dekking, bediening, lijn_buurt, traject = {}, {}, {}, {}
     nb = FREQ_MAX / FREQ_STAP + 1  # laatste klasse: FREQ_MAX of meer
     for a, (_, b) in woon.items():
         n = data["nvo"][a]
@@ -765,6 +899,13 @@ def ov(
         for k, j_dd in dagdeel.items():
             beste = max(freq[p][j_dd] for p in alle_paren[a])
             v[k][min(int(beste / FREQ_STAP), int(nb) - 1)] += n
+        for lengte in TRAJECT_LENGTES_M:
+            vt = traject.setdefault(b, {}).setdefault(
+                str(lengte), {k: [0] * int(nb) for k in DAGDELEN}
+            )
+            paren = frozenset(alle_paren[a])
+            for k, som in zip(DAGDELEN, samen_op_traject(paren, lengte)):
+                vt[k][min(int(som / FREQ_STAP), int(nb) - 1)] += n
 
     def halte_gebied(h):
         return next(
@@ -789,6 +930,10 @@ def ov(
                 "lat": h["lat"],
                 "modi": h["m"],
                 **{k: max((f[j] for f in rij), default=0) for k, j in dagdeel.items()},
+                "traject": {
+                    str(lengte): halte_traject(h["id"], lengte)
+                    for lengte in TRAJECT_LENGTES_M
+                },
             }
         )
 
@@ -841,9 +986,19 @@ def ov(
                     "modi": [m for m in ("bus", "tram", "metro", "trein") if m in modi],
                     "haltes": len(hs),
                     "lijnen": sum(1 for f in lijn.values() if any(f)),
+                    "trajectLijnen": {
+                        str(lengte): traject_lijnen(hs, lengte)
+                        for lengte in TRAJECT_LENGTES_M
+                    },
                     **{
                         k: {
                             "beste": max(f[n] for f in lijn.values()),
+                            "traject": {
+                                str(lengte): max(
+                                    halte_traject(h["id"], lengte)[k] for h in hs
+                                )
+                                for lengte in TRAJECT_LENGTES_M
+                            },
                             "samen": round(sum(f[n] for f in lijn.values()), 1),
                         }
                         for n, k in enumerate(dagdeel)
@@ -868,6 +1023,20 @@ def ov(
     eigen = (
         uurprofiel_uit_gtfs(gtfs, peildatum or dag_verkenner, vlakken) if gtfs else None
     )
+    # Zonder de feed bij de hand: neem het uurprofiel over uit een eerdere build die er wel mee
+    # gemaakt is, maar alleen als die op dezelfde dag rekent als de verkenner.
+    overgenomen = None
+    if vorige and not gtfs:
+        overgenomen = lees_const(vorige)["ov"]["perGebied"]
+        for code in GEBIEDEN:
+            g = overgenomen[code]
+            if g["gtfsPeildatum"] != dag_verkenner.isoformat() or not g[
+                "gtfsBron"
+            ].startswith("GTFS"):
+                raise ValueError(
+                    f"{vorige}: uurprofiel van {code} rekent op {g['gtfsPeildatum']} "
+                    f"({g['gtfsBron']}), niet op de dag van de verkenner"
+                )
     per_gebied = {}
     for code in GEBIEDEN:
         ovg = lees_const(datalade / f"data/{code}/ov.js")
@@ -882,7 +1051,13 @@ def ov(
                 f"{gtfs.name}: {sum(eigen[code])} vertrekken in {code}, tegen "
                 f"{sum(datalade_uren)} in de datalade; de feed dekt die dag niet volledig"
             )
-        uren = eigen[code] if eigen else datalade_uren
+        uren = (
+            eigen[code]
+            if eigen
+            else overgenomen[code]["uurprofiel"]
+            if overgenomen
+            else datalade_uren
+        )
         per_gebied[code] = {
             "buurten": [
                 {
@@ -891,6 +1066,7 @@ def ov(
                     "woonadressen": sum(dekking.get(b["i"], {}).values()),
                     "geometrie": b["geometrie"],
                     "bediening": bediening.get(b["i"]),
+                    "bedieningTraject": traject.get(b["i"]),
                     "dekking": sorted(
                         [i, j, n] for (i, j), n in dekking.get(b["i"], {}).items()
                     ),
@@ -903,8 +1079,14 @@ def ov(
             "uurprofiel": uren,
             "gtfsPeildatum": (peildatum or dag_verkenner).isoformat()
             if eigen
+            else overgenomen[code]["gtfsPeildatum"]
+            if overgenomen
             else ovg["peildatum"],
-            "gtfsBron": f"GTFS NDOV/OVapi ({gtfs.name})" if eigen else ovg["bron"],
+            "gtfsBron": f"GTFS NDOV/OVapi ({gtfs.name})"
+            if eigen
+            else overgenomen[code]["gtfsBron"]
+            if overgenomen
+            else ovg["bron"],
         }
     mz = meerzijdig(data, html, datalade, woon, alle_paren)
     for code in GEBIEDEN:
@@ -919,7 +1101,14 @@ def ov(
     return {
         "lijnen": {li: v for li, v in mz["lijnen"].items() if li in genoemd},
         "meerzijdig": {k: v for k, v in mz.items() if k not in ("perGebied", "lijnen")},
-        "bediening": {"dagdelen": DAGDELEN, "stap": FREQ_STAP, "max": FREQ_MAX},
+        "bediening": {
+            "dagdelen": DAGDELEN,
+            "stap": FREQ_STAP,
+            "max": FREQ_MAX,
+            "trajectM": list(TRAJECT_LENGTES_M),
+            "trajectStandaardM": TRAJECT_STANDAARD_M,
+            "trajectTolM": TRAJECT_TOL_M,
+        },
         "dekking": {
             "busTramStapM": AFSTAND_BUS_STAP,
             "busTramMaxM": AFSTAND_BUS_MAX,
@@ -957,6 +1146,11 @@ def main():
         help="andere dag voor het uurprofiel, alleen ter controle (bijvoorbeeld 2026-08-11)",
     )
     ap.add_argument(
+        "--uurprofiel-van",
+        type=Path,
+        help="zonder feed: neem het uurprofiel over uit een eerdere build met --gtfs (bijvoorbeeld data/datalade.js)",
+    )
+    ap.add_argument(
         "--uit",
         type=Path,
         default=Path(__file__).resolve().parent.parent / "data/datalade.js",
@@ -978,7 +1172,7 @@ def main():
         },
         "gebieden": GEBIEDEN,
         "parkeren": parkeren(a.datalade),
-        "ov": ov(a.datalade, a.loopbaarheid, a.gtfs, a.peildatum),
+        "ov": ov(a.datalade, a.loopbaarheid, a.gtfs, a.peildatum, a.uurprofiel_van),
     }
     tekst = json.dumps(uit, ensure_ascii=False, separators=(",", ":"))
     a.uit.write_text(

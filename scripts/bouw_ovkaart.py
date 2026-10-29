@@ -26,6 +26,9 @@ import re
 from pathlib import Path
 
 import shapely
+
+# Zelfde regel voor ‘lijnen op één traject samen’ als de cijfers per adres.
+from bouw_datalade import TRAJECT_LENGTES_M, lijngeometrie, trajecten
 from shapely.geometry import LineString, Point, Polygon, box, shape
 from shapely.ops import unary_union
 
@@ -276,6 +279,7 @@ def main():
     html = a.loopbaarheid.read_text(encoding="utf-8")
     data = json_blok(html, "d-data")
     haltes, lijnen_bron = data["haltes"], data["lijnen"]
+    geometrie = lijngeometrie(html)
 
     rayon = unary_union(
         [
@@ -322,10 +326,33 @@ def main():
         # Beste frequentie per dagdeel, apart voor bus en tram en voor metro en trein: die
         # hebben een ander loopgebied.
         freq = {k: [0, 0] for k in DAGDELEN}
-        for li, f in zip(data["hlk"][i], data["hlf"][i]):
+        f_lijn = dict(zip(data["hlk"][i], data["hlf"][i]))
+        for li, f in f_lijn.items():
             s = int(lijnen_bron[li]["mode"] in SNEL)
             for k, j in dd.items():
                 freq[k][s] = max(freq[k][s], f[j])
+        # Hetzelfde met lijnen op één traject samen: alle lijnen (500 m), en alleen metro en
+        # trein (800 m).
+        samen = {}
+        for lengte in TRAJECT_LENGTES_M:
+            gs = trajecten(h, data["hlk"][i], geometrie, lengte)
+            samen[str(lengte)] = {
+                k: [
+                    round(max(sum(f_lijn[li][j] for li in g) for g in gs), 1),
+                    round(
+                        max(
+                            sum(
+                                f_lijn[li][j]
+                                for li in g
+                                if lijnen_bron[li]["mode"] in SNEL
+                            )
+                            for g in gs
+                        ),
+                        1,
+                    ),
+                ]
+                for k, j in dd.items()
+            }
         zones.append(
             {
                 "naam": h["n"],
@@ -333,6 +360,7 @@ def main():
                 "lon": h["lon"],
                 "lat": h["lat"],
                 **freq,
+                "t": samen,
                 **{k: uit_vlak(v, ZONE_VEREENVOUDIG_M) for k, v in vlakken.items()},
                 "_punt": punt,
                 "_z500": vlakken["z500"],
