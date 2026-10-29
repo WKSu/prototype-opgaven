@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiets · Noord buiten de Ring</title>
+<link rel="stylesheet" href="css/basis.css">
+</head>
+<body data-thema="fiets" data-pagina="fiets" data-review-hint="Reageer onder elk blok.">
+
+<div class="prototype" role="note"><p><strong>Prototype</strong>Nog niet gebruiken in stukken of besluitvorming: de cijfers zijn nog niet gevalideerd. Cijfers zonder normen of oordeel; onder elk blok staat de bron. Opmerkingen? <a href="?review=1">Zet de reviewmodus aan</a>.</p></div>
+
+<header>
+  <div class="hrow">
+    <h3>Fiets · Noord buiten de Ring</h3>
+    <nav aria-label="Pagina's">
+      <a href="index.html">← Overzicht</a><a href="parkeren.html">Parkeren</a><a href="ov.html">OV</a><a href="fiets.html" aria-current="page">Fiets</a><a href="#nodig">Nog niet beschikbaar</a>
+    </nav>
+  </div>
+</header>
+
+<div class="spine" aria-hidden="true"></div>
+
+<main id="inhoud"><section><div class="nodig"><b>Deze viewer wordt opgebouwd met JavaScript</b>Zie je deze tekst, dan zijn <code>js/thema.js</code> en de bestanden in <code>data/</code> niet geladen. Dat gebeurt als je dit HTML-bestand los opent, bijvoorbeeld als voorbeeldweergave of bijlage. Open de hele map, of de GitHub Pages-versie.</div></section></main>
+
+<script src="data/indicatoren.js"></script>
+<script src="data/datalade.js"></script>
+<script src="data/fiets.js"></script>
+<script src="js/thema.js"></script>
+<script>
+  // Reviewmodus alleen met ?review=1: voor een gewone bezoeker bestaat de laag niet.
+  if (new URLSearchParams(location.search).get("review") === "1") {
+    const s = document.createElement("script");
+    s.src = "js/review.js";
+    document.body.appendChild(s);
+  }
+</script>
+</body>
+</html>

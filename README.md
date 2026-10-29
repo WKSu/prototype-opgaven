@@ -12,7 +12,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | Bestand | Wat |
 |---|---|
 | `index.html` | overzicht: alle indicatoren met normenlaag (mock-up, deels echte cijfers) |
-| `parkeren.html`, `ov.html` | themaviewers: per indicator wat hij zegt, hoe hij gemeten is en waar je op let, met kaarten en tabellen die aan elkaar gekoppeld zijn |
+| `parkeren.html`, `ov.html`, `fiets.html` | themaviewers: per indicator wat hij zegt, hoe hij gemeten is en waar je op let, met kaarten en tabellen die aan elkaar gekoppeld zijn |
 | `css/basis.css` | gedeelde opmaak; huisstijlkleuren gemeente Rotterdam, alleen licht |
 | `data/indicatoren.js` | `const FUNCTIONEREN`: gebieden, normen, indicatoren en per indicator de datalade-status (handgeschreven) |
 | `data/datalade.js` | `const DATALADE`: echte cijfers, gegenereerd door `scripts/bouw_datalade.py` |
@@ -22,6 +22,7 @@ ondergrond (BRT-Achtergrondkaart grijs) live bij PDOK; zonder internet blijven z
 | `data/fietsparkeren.js` | `const FIETSPARKEREN`: capaciteit en fietsparkeerdruk uit de fietsparkeertellingen, gegenereerd door `scripts/bouw_fietsparkeren.py` |
 | `data/woningbouw.js` | `const WONINGBOUW`: woningbouwprojecten uit BoPro per subbuurt, context in de Parkeren-viewer, gegenereerd door `scripts/bouw_woningbouw.py` |
 | `data/pr.js` | `const PR`: P+R-terreinen met capaciteit uit het Nationaal Parkeerregister (RDW), opgehaald met `scripts/haal_npr.py` |
+| `data/fiets.js` | `const FIETS`: netwerkkaart fiets, ontbrekende schakels, mazen en VRI's voor de Fiets-viewer, gegenereerd door `scripts/bouw_fiets.py` |
 | `data/toegankelijkheid.js` | `const TOEGANKELIJK`: toegankelijkheid per perron van bus, tram en metro uit het Centraal Haltebestand, met vertrekken per perron, gegenereerd door `scripts/bouw_toegankelijkheid.py` |
 | `data/ruimtebeslag.js` | `const RUIMTEBESLAG`: parkeren ÷ openbare ruimte per subbuurt(deel), gegenereerd door `scripts/bouw_ruimtebeslag.py` |
 | `js/app.js` | overzicht: oordeel per waarde, tabellen, kerncijfers; elk blok in een `veilig()`-guard |
@@ -126,6 +127,30 @@ Kader: *Beleidskader Toegankelijk Openbaar Vervoer* (MRDH, 2024), in
 `data_manual/beleidskader toegankelijk ov/`. Het noemt geen percentage, alleen het streven naar volledig
 toegankelijk OV in 2040, en geeft de drukst gebruikte haltes voorrang. De indicator heeft daarom geen
 norm; de viewer zet de perrons op aantal vertrekken. Treinperrons (ProRail) staan niet in het CHB.
+
+## Fiets bijwerken
+
+```bash
+uv run scripts/bouw_fiets.py     # data_manual/fiets, na bouw_datalade.py
+```
+
+De levering van het themateam Fiets (oktober 2026, bij de notitie *Thematische indicatoren* van
+20 oktober 2026) staat in `data_manual/fiets`:
+
+- **Netwerkkaart fiets** op het NWB (`Fietsnetwerk_NoordBuitenRing.gpkg`), per wegvak primair,
+  secundair of tertiair. `new_*` is een schakel die er nog niet ligt; stukjes binnen 5 m van elkaar
+  zijn één schakel, met de straatnamen van het dichtstbijzijnde wegvak aan elk eind.
+- **Mazen** van het befietsbare OSM-netwerk (`OSM_NoordBuitenRing_Fiets_mazen.gpkg`). Maaswijdte =
+  omtrek ÷ 4, de zijde van een vierkant met dezelfde omtrek. De levering toetste de omtrek aan 1000 m
+  ('500 + 500'), maar `omtrek_m` is de hele rand: twee zijden van 500 m horen bij een omtrek van
+  2000 m. De afspraak (500 m) staat in `FUNCTIONEREN.fietsKeuzes`; in de viewer is de grens in te
+  stellen, en op 250 m zie je de uitkomst van de levering. Mazen onder 125 m gaan niet mee.
+- **VRI's** uit de lijst VRI-vervangingen van januari 2023 (`VRIs_NoordBuitenRing.gpkg`). Een VRI
+  telt binnen 25 m van een route van de netwerkkaart; de stopkans is VRI's per 10 km netwerkkaart.
+  De levering deelde alle 33 door alle 786 km weg in het rayon.
+
+Normen: maaswijdte boven 500 m, ontbrekende schakels en breedtelabel onder B zijn rood, als afspraak
+van het themateam. De breedtelabels zitten nog niet in de levering.
 
 ## Parkeertellingen bijwerken
 

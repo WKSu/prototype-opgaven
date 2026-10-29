@@ -14,7 +14,7 @@
   <div class="hrow">
     <h3>Functioneren · Noord buiten de Ring</h3>
     <nav aria-label="Secties">
-      <a href="#s0">Overzicht</a><a href="#s1">Normen lezen</a><a href="#s2">Parkeren</a><a href="#s3">OV</a><a href="#s4">Voorlopige keuzes</a><a href="parkeren.html">Parkeren-viewer →</a><a href="ov.html">OV-viewer →</a>
+      <a href="#s0">Overzicht</a><a href="#s1">Normen lezen</a><a href="#s2">Parkeren</a><a href="#s3">OV</a><a href="#s4">Fiets</a><a href="#s5">Voorlopige keuzes</a><a href="parkeren.html">Parkeren-viewer →</a><a href="ov.html">OV-viewer →</a><a href="fiets.html">Fiets-viewer →</a>
     </nav>
     <button class="schakel" id="normSchakel" role="switch" aria-checked="true"><span class="baan" aria-hidden="true"></span><span id="normLabel">Normenlaag aan</span></button>
   </div>
@@ -25,9 +25,9 @@
 <main>
 
 <section id="s0" data-onderwerp="sectie-s0" data-label="Overzicht" data-review="tekst" data-review-vraag="Wat mis je in het overzicht?" style="border-bottom:4px solid var(--asfalt)">
-  <div class="eyebrow">Functioneren · Rayon Noord buiten de Ring · Parkeren en OV</div>
+  <div class="eyebrow">Functioneren · Rayon Noord buiten de Ring · Parkeren, OV en fiets</div>
   <h1>Noord <span class="accent">buiten de Ring</span></h1>
-  <p class="lead">Hoe functioneren parkeren en OV in Overschie, Hillegersberg-Schiebroek en Prins Alexander, gemeten tegen de normen die we hebben? De normenlaag kun je aan en uit zetten. Bij elk oordeel staat waar de norm vandaan komt.</p>
+  <p class="lead">Hoe functioneren parkeren, OV en fiets in Overschie, Hillegersberg-Schiebroek en Prins Alexander, gemeten tegen de normen die we hebben? De normenlaag kun je aan en uit zetten. Bij elk oordeel staat waar de norm vandaan komt.</p>
   <div data-onderwerp="kerncijfers" data-label="Kerncijfers">
     <div class="strip" id="kerncijfers"></div>
     <div class="knel" id="gevoeligheid"></div>
@@ -41,7 +41,7 @@
   <div data-onderwerp="normen-lezen" data-label="Normsoorten en oordelen">
   <div class="legenda">
     <div class="lk" style="--c:var(--rood)"><b>Vastgesteld beleid</b><p>Vastgelegd in een beleidsdocument. Hier: parkeerdruk uit de nota Betaald parkeren in Rotterdam (2019).</p></div>
-    <div class="lk" style="--c:var(--markering)"><b>Afspraak themateam</b><p>Een keuze van de afdeling. Hier: een rapportcijfer onder 5,5 is onvoldoende.</p></div>
+    <div class="lk" style="--c:var(--markering)"><b>Afspraak themateam</b><p>Een keuze van de afdeling. Hier: een rapportcijfer onder 5,5 is onvoldoende, en bij fiets een maas breder dan 500 m of een ontbrekende schakel.</p></div>
     <div class="lk" style="--c:var(--stil)"><b>Geen norm</b><p>Alleen tonen. Een opvallende waarde is hooguit een signaal en wordt geen opgave.</p></div>
   </div>
   <div class="box">
@@ -65,8 +65,15 @@
   <div id="tabel-ov"><p class="foot">Deze tabel wordt opgebouwd met JavaScript. Zie je deze tekst, dan zijn <code>js/app.js</code> en <code>data/</code> niet geladen: open de hele map, niet alleen dit bestand.</p></div>
 </section>
 
-<section id="s4" data-onderwerp="sectie-s4" data-label="Voorlopige keuzes" data-review="tekst" data-review-vraag="Welke keuze mis je?" style="border-bottom:0">
-  <div class="eyebrow">04 · Voorlopige keuzes</div>
+<section id="s4" data-onderwerp="sectie-s4" data-label="Fiets" data-review="tekst" data-review-vraag="Welke indicator mis je bij Fiets?">
+  <div class="eyebrow">04 · Fiets</div>
+  <h2>Een fijnmazig en af fietsnetwerk</h2>
+  <p>Hoe ver liggen de fietsroutes uit elkaar, welke schakels van de netwerkkaart fiets ontbreken nog, en hoe vaak sta je voor een verkeerslicht? De normen zijn voorstellen van het themateam Fiets. Fietsparkeren staat bij Parkeren. Kaarten en een instelbare maaswijdte staan in de <a href="fiets.html">Fiets-viewer</a>.</p>
+  <div id="tabel-fiets"><p class="foot">Deze tabel wordt opgebouwd met JavaScript. Zie je deze tekst, dan zijn <code>js/app.js</code> en <code>data/</code> niet geladen: open de hele map, niet alleen dit bestand.</p></div>
+</section>
+
+<section id="s5" data-onderwerp="sectie-s5" data-label="Voorlopige keuzes" data-review="tekst" data-review-vraag="Welke keuze mis je?" style="border-bottom:0">
+  <div class="eyebrow">05 · Voorlopige keuzes</div>
   <h2>Keuzes die bepalen hoe je de cijfers leest</h2>
   <p>Deze keuzes zijn nog niet vastgesteld. Ze staan hier zodat je weet waar een cijfer op rust.</p>
   <div class="vragen">
@@ -76,6 +83,7 @@
     <div class="vraag" data-onderwerp="vraag-ov-zonder-norm" data-label="OV heeft geen vastgestelde norm" data-review="tekst" data-review-vraag="Opmerking"><b>OV heeft geen vastgestelde norm</b><p>Elk kwartier in de avond, 500 m lopen naar bus en tram en 800 m naar metro en trein zijn keuzes, geen beleid. In de OV-viewer zijn ze in te stellen. Daarom kleurt OV nergens rood.</p></div>
     <div class="vraag" data-onderwerp="vraag-meerzijdige-bereikbaarheid" data-label="Meerzijdige bereikbaarheid in drie maten" data-review="tekst" data-review-vraag="Opmerking"><b>Meerzijdige bereikbaarheid in drie maten</b><p>Vervoersmix, richting-check en storingstest. ‘Om het centrum heen’ betekent: de lijn komt niet in gebied Rotterdam Centrum. Een lijn telt mee als hij overdag minstens elk half uur rijdt.</p></div>
     <div class="vraag" data-onderwerp="vraag-overlast" data-label="Overlast nog niet in beeld" data-review="tekst" data-review-vraag="Opmerking"><b>Overlast nog niet in beeld</b><p>Meldingen foutparkeren en verwijderde weesfietsen zijn nog niet beschikbaar. Let op: meldingen meten ook hoe snel mensen melden, en weesfietsen hoeveel er gehandhaafd wordt.</p></div>
+    <div class="vraag" data-onderwerp="vraag-maaswijdte" data-label="Maaswijdte is de omtrek gedeeld door vier" data-review="tekst" data-review-vraag="Opmerking"><b>Maaswijdte is de omtrek gedeeld door vier</b><p>De zijde van een vierkant met dezelfde omtrek. Een maas van 500 bij 500 m heeft een omtrek van 2000 m. De eerste uitwerking toetste de omtrek aan 1000 m; dat is een maas van ongeveer 250 bij 250 m. In de <a href="fiets.html#i-fiets-maaswijdte">Fiets-viewer</a> is de grens in te stellen.</p></div>
   </div>
 </section>
 
@@ -89,6 +97,7 @@
 <script src="data/ruimtebeslag.js"></script>
 <script src="data/fietsparkeren.js"></script>
 <script src="data/toegankelijkheid.js"></script>
+<script src="data/fiets.js"></script>
 <script src="js/app.js"></script>
 <script>
   // Reviewmodus alleen met ?review=1: voor een gewone bezoeker bestaat de laag niet.

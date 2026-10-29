@@ -181,6 +181,18 @@ ol.inhoudsopgave .oordeel{font-size:11px;margin-left:4px}
 .legenda-rij i.streep.stippel{border-top:1.5px dashed var(--asfalt-zacht)}
 .legenda-rij i.arcering{background:repeating-linear-gradient(45deg,var(--stil) 0 1.4px,var(--wit) 1.4px 6px)}
 .knoppen.laag{margin:4px 0 2px}
+/* ---------- fietskaarten: netwerkkaart per niveau, ontbrekende schakels ---------- */
+.kaart-svg path.fnet{fill:none;fill-opacity:1;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.kaart-svg path.fnet.fiets_primary{stroke:var(--asfalt);stroke-width:2.4}
+.kaart-svg path.fnet.fiets_secondary{stroke:var(--asfalt-zacht);stroke-width:1.5}
+.kaart-svg path.fnet.fiets_tertiary{stroke:var(--stil);stroke-width:.9}
+.kaart-svg path.schakel{fill:none;fill-opacity:1;stroke:var(--rood);stroke-width:4;stroke-dasharray:6 3;stroke-linecap:butt;pointer-events:stroke;cursor:pointer}
+.kaart-svg path.schakel:hover{stroke:var(--rood);stroke-width:6}
+.kaart-svg path.maas{stroke:var(--wit);stroke-width:.5;fill-opacity:.8}
+.legenda-rij i.streep.fiets_primary{border-top:2.4px solid var(--asfalt)}
+.legenda-rij i.streep.fiets_secondary{border-top:1.5px solid var(--asfalt-zacht)}
+.legenda-rij i.streep.fiets_tertiary{border-top:1px solid var(--stil)}
+.legenda-rij i.streep.schakel{border-top:4px dashed var(--rood)}
 /* Inzoomen: lijnen houden hun dikte op het scherm. Verticaal vegen blijft de pagina scrollen
    tot je ingezoomd bent; daarna verschuift een vinger de kaart. */
 .zoomkader{position:relative}
