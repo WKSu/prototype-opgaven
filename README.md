@@ -51,7 +51,9 @@ want dan ontbreekt een vervoerder. `--peildatum` kiest ter controle een andere d
 
 Zonder `--gtfs` komt het uurprofiel uit de datalade, op de dinsdag waarop die gebouwd is
 (11 augustus 2026, in de zomervakantie, en zonder RET-buslijnen 30, 31, 35, 36 en 96–98); de
-viewer zegt het dan.
+viewer zegt het dan. Is de feed niet bij de hand, dan neemt `--uurprofiel-van data/datalade.js`
+het uurprofiel over uit de vorige build, maar alleen als die met een feed op de dag van de
+verkenner is gemaakt; anders breekt het script af.
 
 Het script schrijft alleen aggregaten per gebied, buurt, sector of halte; nooit een adres.
 Hernoemt een bron een veld, dan breekt het script af in plaats van een lege tabel te maken.
@@ -66,6 +68,12 @@ bus/tram en metro/trein (stappen van 50 en 100 m). `js/ov-normen.js` telt die bi
 schuifjes exact op; het overzicht gebruikt dezelfde rekenregel bij de standaardnorm uit
 `FUNCTIONEREN.ovKeuzes` (avond, 4 per uur; 500 m bus/tram, 800 m metro/trein). De onderbouwing
 van de loopafstanden staat in `docs/loopafstanden.md`.
+
+De frequentie heeft een tweede telling: **lijnen op één traject samen**. Lijnen die vanaf de
+halte 1 of 2 km dezelfde route rijden (halverwege en aan het eind nog geen 150 m uit elkaar),
+tellen op; per buurt staat daarvan een eigen verdeling (`bedieningTraject`), per halte en
+overstappunt de hoogste som. De viewer schakelt ertussen; het overzicht blijft op de beste lijn.
+Onderbouwing en uitkomsten in `docs/frequentie-meerdere-lijnen.md`.
 
 ### Meerzijdige bereikbaarheid (OV)
 

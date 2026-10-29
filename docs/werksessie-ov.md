@@ -124,6 +124,11 @@ geregeld zijn voor een storing (vervangend vervoer, een tweede lijn)?
 - **Een knoop telt als zijn beste lijn.** De indicator rekent per adres met de beste lijn, niet
   met alle lijnen samen. Capelsebrug (13 lijnen) haalt ’s avonds 4,5 per uur, net als
   Prinsenlaan met alleen metro. Op de kaart is de kleur de beste lijn en de grootte alles samen.
+  - Met de schakelaar *Lijnen op één traject samen* tellen lijnen op die dezelfde route rijden:
+    metro A, B en C bij Capelsebrug ’s avonds 13 per uur. Dat is een bovengrens.
+  - Bij de standaardnorm (elk kwartier in de avond) verandert er niets. Bij 6 per uur in de
+    avond gaat Prins Alexander van 0% naar 30%; overdag gaat Overschie van 2,5% naar 40% als
+    bussen die 1 km samen rijden ook meetellen.
 - **Kleine buurten springen.** Noord Kethel (36 adressen) en Landzicht (198) geven grote
   percentages op weinig woningen.
 

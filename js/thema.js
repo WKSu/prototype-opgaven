@@ -387,7 +387,9 @@ const ov = (code) => D.ov.perGebied[code];
 
 // Stand van de schuifjes; begint op de standaardnorm uit FUNCTIONEREN.ovKeuzes. storing: de
 // gekozen verbinding in de storingstest ("" = de zwaarste per gebied).
-const S_OV = F ? { ...F.ovKeuzes, storing: "" } : {};
+// traject: null telt de beste lijn (de standaard); "1000" of "2000" telt lijnen die zoveel meter
+// dezelfde route rijden samen. trajectLengte onthoudt de gekozen lengte als je terugschakelt.
+const S_OV = F ? { ...F.ovKeuzes, storing: "", traject: null, trajectLengte: "2000" } : {};
 // Interactieve blokken binden hun schuifjes nadat de pagina is opgebouwd.
 const NA_RENDER = [];
 // Wie meekijkt met de koppeling tussen kaart en tabel: bij elke markering (ook hover) en bij
@@ -564,8 +566,9 @@ const zetWaarde = (id, tekst) => {
 
 /* ---------- frequentie: goed bediende woonadressen ---------- */
 
-const bediendPct = (b) => pctVan(OVN.bediendIn(b, S_OV.dagdeel, S_OV.perUur), b.woonadressen);
-const bediendHover = (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen`} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${D.ov.bediening.dagdelen[S_OV.dagdeel]}`;
+const bediendPct = (b) => pctVan(OVN.bediendIn(b, S_OV.dagdeel, S_OV.perUur, S_OV.traject), b.woonadressen);
+const telTekst = () => (S_OV.traject ? ` (lijnen die ${fmt(Number(S_OV.traject) / 1000)} km samen rijden opgeteld)` : "");
+const bediendHover = (b, v) => `${b.naam} (${GEBIED[b.gebied]}): ${v == null ? "geen woonadressen" : `${fmt(v, 1)}% van ${fmt(b.woonadressen)} woonadressen`} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${D.ov.bediening.dagdelen[S_OV.dagdeel]}${telTekst()}`;
 
 // Overstappunten: haltes binnen 150 m van elkaar zijn één punt (bouw_datalade.py). De kleur volgt
 // de indicator (de beste lijn), de grootte alles wat er vertrekt, alle lijnen samen; zo valt een
@@ -595,7 +598,7 @@ function knoopPunten(xy) {
 }
 
 const knoopLegenda = () =>
-  `<div class="legenda-rij"><b>Haltes</b><span><i class="rond" style="background:var(--asfalt)"></i>beste lijn haalt de grens</span><span><i class="rond" style="background:var(--wit)"></i>niet</span><span>grootte: vertrekken per uur per richting, alle lijnen samen</span>${KNOOP_IJK.map((n) => {
+  `<div class="legenda-rij"><b>Haltes</b><span><i class="rond" style="background:var(--asfalt)"></i><span id="bed-haalt">beste lijn haalt de grens</span></span><span><i class="rond" style="background:var(--wit)"></i>niet</span><span>grootte: vertrekken per uur per richting, alle lijnen samen</span>${KNOOP_IJK.map((n) => {
     const r = knoopR(n);
     return `<span><svg width="${(2 * r + 2).toFixed(0)}" height="${(2 * r + 2).toFixed(0)}" style="vertical-align:middle;margin-right:4px" aria-hidden="true"><circle cx="${(r + 1).toFixed(1)}" cy="${(r + 1).toFixed(1)}" r="${r.toFixed(1)}" fill="var(--wit)" stroke="var(--asfalt)"></circle></svg>${n}</span>`;
   }).join("")}</div>`;
@@ -611,13 +614,18 @@ function bediening() {
       <datalist id="bed-ijk"><option value="2"></option><option value="4"></option><option value="6"></option></datalist>
       <button type="button" class="terug" id="bed-terug">Standaardnorm</button>
       <div class="ijk">Standaard: elk kwartier in de avond. Zes keer per uur (elke 10 minuten) geldt vaak als hoogfrequent OV. Geen van beide is een vastgestelde norm.</div>
+      ${D.ov.bediening.trajectM ? `<div class="knoppen" role="group" aria-label="Hoe lijnen meetellen"><button type="button" data-telling="lijn" aria-pressed="true">Beste lijn</button><button type="button" data-telling="traject" aria-pressed="false">Lijnen op één traject samen</button></div>
+      <span id="bed-lengte" hidden>die minstens <span class="knoppen" role="group" aria-label="Lengte van het gedeelde traject">${D.ov.bediening.trajectM
+        .map((m) => `<button type="button" data-lengte="${m}" aria-pressed="${String(m) === S_OV.trajectLengte}">${fmt(m / 1000)} km</button>`)
+        .join("")}</span> dezelfde route rijden</span>
+      <div class="ijk"><b>Beste lijn</b> telt de lijn die het vaakst rijdt: wat je zeker hebt. <b>Samen</b> telt lijnen op die vanaf de halte dezelfde route rijden; voor een reis langs dat traject neem je de eerste die komt. Dat is een bovengrens: je wacht alleen zo kort als ze om en om rijden, en alleen als je langs dat traject moet. Alle lijnen van een halte optellen doen we niet, want lijnen naar verschillende kanten vervangen elkaar niet; dat totaal is de grootte van de punten. <a href="https://github.com/WKSu/prototype-opgaven/blob/main/docs/frequentie-meerdere-lijnen.md">Onderbouwing</a>.</div>` : ""}
     </div>
     <div id="bed-strip"></div>
     <h4 style="margin-top:18px">Hoe gevoelig is dat voor de grens?</h4>
     <p style="font-size:13.5px">Hetzelfde dagdeel bij drie grenzen. Liggen de uitkomsten ver uit elkaar, dan bepaalt de grens het beeld.</p>
     <div id="bed-gevoelig"></div>
     <h4 style="margin-top:22px">Per buurt</h4>
-    <p style="font-size:13.5px">De punten zijn haltes: zwart als minstens één lijn er de grens haalt. Daar rekent de indicator mee. Hoe groter het punt, hoe meer er vertrekt, alle lijnen samen; haltes binnen 150 m van elkaar, zoals een metrostation met de busperrons ernaast, zijn één punt.${OK ? " Kies <i>Loopgebied van de haltes</i> om te zien waar dat aandeel vandaan komt: gekleurd is binnen loopafstand van zo’n halte, wit niet." : ""}</p>
+    <p style="font-size:13.5px">De punten zijn haltes: zwart als de halte de grens haalt, met de beste lijn of met lijnen op één traject samen, naar de keuze hierboven. Hoe groter het punt, hoe meer er vertrekt, alle lijnen samen; haltes binnen 150 m van elkaar, zoals een metrostation met de busperrons ernaast, zijn één punt.${OK ? " Kies <i>Loopgebied van de haltes</i> om te zien waar dat aandeel vandaan komt: gekleurd is binnen loopafstand van zo’n halte, wit niet." : ""}</p>
     ${laagKnoppen("bed-kaart")}${loopLegenda("bed-kaart")}
     ${buurtKaart("bed-kaart", "Goed bediende woonadressen", DEKKING_KL, bediendPct, bediendHover, (xy) => zonePaden(xy) + knoopPunten(xy))}
     ${knoopLegenda()}
@@ -632,23 +640,42 @@ function tekenBediening() {
   const dd = D.ov.bediening.dagdelen[S_OV.dagdeel];
   zetWaarde("bed-per-uur-w", `${fmt(S_OV.perUur, S_OV.perUur % 1 ? 1 : 0)} (${OVN.interval(S_OV.perUur)})`);
   document.querySelectorAll("[data-dagdeel]").forEach((k) => k.setAttribute("aria-pressed", k.dataset.dagdeel === S_OV.dagdeel));
+  document.querySelectorAll("[data-telling]").forEach((k) => k.setAttribute("aria-pressed", (k.dataset.telling === "traject") === !!S_OV.traject));
+  document.querySelectorAll("[data-lengte]").forEach((k) => k.setAttribute("aria-pressed", k.dataset.lengte === S_OV.trajectLengte));
+  const lengte = document.getElementById("bed-lengte");
+  if (lengte) lengte.hidden = !S_OV.traject;
+  // De kop volgt de keuze; eronder staan altijd beide tellingen, zodat je de bandbreedte ziet.
+  const km = `${fmt(Number(S_OV.trajectLengte) / 1000)} km`;
   document.getElementById("bed-strip").innerHTML = strip(
-    F.gebieden.map((g) => [`${fmt(OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur), 1)}%`, `van de woonadressen in ${g.naam} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${dd}`, ""])
+    F.gebieden.map((g) => {
+      const beste = OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur);
+      const samen = D.ov.bediening.trajectM ? OVN.bediend(g.code, S_OV.dagdeel, S_OV.perUur, S_OV.trajectLengte) : null;
+      return [
+        `${fmt(S_OV.traject ? samen : beste, 1)}%`,
+        `van de woonadressen in ${g.naam} heeft ${OVN.interval(S_OV.perUur)} een vertrek, ${dd}`,
+        samen == null ? "" : `beste lijn ${fmt(beste, 1)}% · samen op ${km} traject ${fmt(samen, 1)}%`,
+      ];
+    })
   );
   const grenzen = [2, 4, 6];
   document.getElementById("bed-gevoelig").innerHTML = `<div class="scroll"><table class="data" style="min-width:480px"><thead><tr><th>${dd}</th>${grenzen
     .map((x) => `<th class="getal">${OVN.interval(x)}</th>`)
     .join("")}</tr></thead><tbody>${F.gebieden
-    .map((g) => `<tr><td>${g.naam}</td>${grenzen.map((x) => `<td class="getal">${fmt(OVN.bediend(g.code, S_OV.dagdeel, x), 1)}%</td>`).join("")}</tr>`)
+    .map((g) => `<tr><td>${g.naam}</td>${grenzen.map((x) => `<td class="getal">${fmt(OVN.bediend(g.code, S_OV.dagdeel, x, S_OV.traject), 1)}%</td>`).join("")}</tr>`)
     .join("")}</tbody></table></div>`;
   kleurKaart("bed-kaart", DEKKING_KL, bediendPct, bediendHover);
+  zetWaarde("bed-haalt", S_OV.traject ? `lijnen op één traject halen samen de grens` : "beste lijn haalt de grens");
   const ks = alleKnopen();
   document.querySelectorAll("#bed-haltes circle").forEach((c) => {
     const k = ks[c.dataset.i], { beste, samen } = k[S_OV.dagdeel];
-    const haalt = beste >= S_OV.perUur;
+    const traject = k[S_OV.dagdeel].traject ? k[S_OV.dagdeel].traject[S_OV.trajectLengte] : null;
+    const namen = k.trajectLijnen ? k.trajectLijnen[S_OV.trajectLengte] : [];
+    const haalt = (S_OV.traject ? traject : beste) >= S_OV.perUur;
     c.setAttribute("r", knoopR(samen).toFixed(1));
     c.style.fill = haalt ? "var(--asfalt)" : "var(--wit)";
-    c.dataset.tip = `${k.naam}${k.haltes > 1 ? ` (${k.haltes} haltes)` : ""}, ${k.modi.join(", ")}: ${k.lijnen} ${k.lijnen === 1 ? "lijn" : "lijnen"}, samen ${fmt(samen, 1)} vertrekken per uur per richting, ${dd}. Beste lijn ${fmt(beste, 1)}${haalt ? "" : " — haalt de norm niet"}.`;
+    c.dataset.tip = `${k.naam}${k.haltes > 1 ? ` (${k.haltes} haltes)` : ""}, ${k.modi.join(", ")}, ${dd}: beste lijn ${fmt(beste, 1)}${
+      traject == null ? "" : `; samen op ${km} traject ${fmt(traject, 1)}${namen.length ? ` (${namen.join(", ")})` : ""}`
+    }; alle ${k.lijnen} ${k.lijnen === 1 ? "lijn" : "lijnen"} samen ${fmt(samen, 1)} vertrekken per uur per richting${haalt ? "" : " — haalt de norm niet"}.`;
   });
   buurtRijen("bed-buurten", bediendPct);
   if (OK) {
@@ -662,7 +689,8 @@ function tekenBediening() {
 // Zelfde regel als de frequentie per adres: bus en tram tot 500 m, metro en trein tot 800 m,
 // en bij een grote knoop alle lijnen tot 1 km.
 function zoneBediend(z, soort) {
-  const [busTram, metroTrein] = z[S_OV.dagdeel];
+  // Met ‘samen’: alle lijnen op één traject (500 m), en metro en trein op één traject (800 m).
+  const [busTram, metroTrein] = S_OV.traject && z.t ? z.t[S_OV.traject][S_OV.dagdeel] : z[S_OV.dagdeel];
   const beste = Math.max(busTram, metroTrein);
   if (z.z1000) return soort === "z1000" && beste >= S_OV.perUur;
   return soort === "z800" ? metroTrein >= S_OV.perUur : soort === "z500" && beste >= S_OV.perUur;
@@ -681,8 +709,21 @@ NA_RENDER.push(function bedieningSchuifjes() {
       tekenBediening();
     };
   });
+  document.querySelectorAll("[data-telling]").forEach((k) => {
+    k.onclick = () => {
+      S_OV.traject = k.dataset.telling === "traject" ? S_OV.trajectLengte : null;
+      tekenBediening();
+    };
+  });
+  document.querySelectorAll("[data-lengte]").forEach((k) => {
+    k.onclick = () => {
+      S_OV.trajectLengte = k.dataset.lengte;
+      if (S_OV.traject) S_OV.traject = S_OV.trajectLengte;
+      tekenBediening();
+    };
+  });
   document.getElementById("bed-terug").onclick = () => {
-    Object.assign(S_OV, { dagdeel: F.ovKeuzes.dagdeel, perUur: F.ovKeuzes.perUur });
+    Object.assign(S_OV, { dagdeel: F.ovKeuzes.dagdeel, perUur: F.ovKeuzes.perUur, traject: null, trajectLengte: String(D.ov.bediening.trajectStandaardM || 2000) });
     schuif.value = S_OV.perUur;
     tekenBediening();
   };
@@ -978,7 +1019,7 @@ function buurtProfiel(naam) {
   const [verlies, corridor] = STORING().map((c) => [c.perBuurt[naam] || 0, c.corridor]).sort((x, y) => y[0] - x[0])[0] || [0, null];
   const dd = D.ov.bediening.dagdelen[S_OV.dagdeel];
   const cijfers = [
-    [`${hoofdletter(OVN.interval(S_OV.perUur))} een vertrek, ${dd}`, bediendPct(b), "ov-frequentie"],
+    [`${hoofdletter(OVN.interval(S_OV.perUur))} een vertrek, ${dd}${S_OV.traject ? `, lijnen op één traject samen (${fmt(Number(S_OV.traject) / 1000)} km)` : ""}`, bediendPct(b), "ov-frequentie"],
     [`Binnen ${S_OV.loopBusTramM} m van bus of tram, of ${S_OV.loopMetroTreinM} m van metro of trein`, gedektPct(b), "ov-haltedekking"],
     ["Twee of meer soorten OV op loopafstand", m?.mix, "ov-vervoersmix"],
     ["Een lijn om het centrum heen", m?.tangentieel, "ov-richting"],

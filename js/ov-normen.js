@@ -8,10 +8,13 @@ const OVN = {
   som: (rij) => rij.reduce((a, n) => a + n, 0),
 
   // Woonadressen in een buurt met op loopafstand een lijn die minstens perUur keer per uur per
-  // richting rijdt in het dagdeel. Klasse k bevat de frequenties vanaf k × stap.
-  bediendIn(b, dagdeel, perUur) {
-    if (!b.bediening) return 0;
-    return OVN.som(b.bediening[dagdeel].slice(Math.round(perUur / DATALADE.ov.bediening.stap)));
+  // richting rijdt in het dagdeel. Klasse k bevat de frequenties vanaf k × stap. Met traject
+  // ("1000" of "2000", in meters) tellen lijnen die zo ver dezelfde route rijden samen; zonder
+  // telt de beste lijn, de standaard.
+  bediendIn(b, dagdeel, perUur, traject = null) {
+    const verdeling = traject ? b.bedieningTraject && b.bedieningTraject[traject] : b.bediening;
+    if (!verdeling) return 0;
+    return OVN.som(verdeling[dagdeel].slice(Math.round(perUur / DATALADE.ov.bediening.stap)));
   },
 
   // Woonadressen binnen busM lopen van bus of tram, of metroM van metro of trein. Klasse i
@@ -28,7 +31,7 @@ const OVN = {
     const totaal = OVN.som(bs.map((b) => b.woonadressen));
     return totaal ? (100 * OVN.som(bs.map(teller))) / totaal : null;
   },
-  bediend: (code, dagdeel, perUur) => OVN.aandeel(code, (b) => OVN.bediendIn(b, dagdeel, perUur)),
+  bediend: (code, dagdeel, perUur, traject = null) => OVN.aandeel(code, (b) => OVN.bediendIn(b, dagdeel, perUur, traject)),
   gedekt: (code, busM, metroM) => OVN.aandeel(code, (b) => OVN.gedektIn(b, busM, metroM)),
 
   // "4 per uur" leest beter als "elk kwartier".
